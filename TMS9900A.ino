@@ -366,6 +366,13 @@ void setup1 () {
     mem [0x42] = 0x10; // JMP $
     mem [0x43] = 0xFF;
 
+    mem [0x44] = 0x02; // LI   R0,>0001
+    mem [0x45] = 0x00;
+    mem [0x46] = 0x00;
+    mem [0x47] = 0x01;
+    mem [0x48] = 0x16; // JNE $
+    mem [0x49] = 0xFF;
+
     memcpy (&(mem [0x6000]), cputest, sizeof (cputest));
     
     while (not_ready) {}
@@ -436,6 +443,7 @@ void IN_RAM(loop1) () {
     //i = run9900 (mem, 0x001C, 0x8300, buf);
     //i = run9900 (mem, 0x0028, 0x8300, buf);
     //i = run9900 (mem, 0x0038, 0x8300, buf);
+    //i = run9900 (mem, 0x0044, 0x8300, buf);
     i = run9900 (mem, 0x6026, 0x8300, buf);
 
 #if DEBUGOUT
