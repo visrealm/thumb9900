@@ -63,9 +63,11 @@ RETCODE: .WORD 0
 // *********************************************************************************************
 
 // void run9900 (unsigned char * memory, unsigned short pc, unsigned short wp, unsigned char * buf);
+// R3 =PC+2 (initially)
+// R4 =TEMP (in some cases)
 // R5 =SRCE
 // R6 =DEST
-// R7 =JUMP-MASK
+// R7 =2nd JUMP location
 // R8 =memory
 // R9 =buf
 // R10=PC
@@ -84,7 +86,6 @@ run9900:
         MOV  R4,R12
         PUSH {R4}    // R12
 
-        MOVS R7,#0x3C
         MOV  R8,R0  // memory
         MOV  R9,R3  // buf
         MOV  R10,R1 // PC
@@ -104,68 +105,40 @@ start:  ADR  R0,instscnt
         ADD  R0,R8
         LDRH R0,[R0,#0] // Get instruction BYTE|INST (LE format)
 
-startX: LSRS R1,R0,#2 // INST high nibble right for masking
-        ANDS R1,R7
-        ADR  R4,OPCODE
-        LDR  R4,[R4,R1] // goto *OPCODE [INST >> 4];
+startX: REV16 R1,R0 // R1=INST|BYTE
+        LSRS R1,#5  // Get opcode
+        LSLS R1,#3  // x8
+        ADR  R4,JTA
+        LDR  R4,[R4,#0]
+        ADDS R4,R1
+        LDR  R7,[R4,#4] // Get 2nd branch location (if it's needed)
+        LDR  R4,[R4,#0] // Get 1st...
         MOV  PC,R4
 .align 4
-OPCODE: .WORD OP_0, OP_1, OP_2, OP_3, OP_COM, OP_COM, OP_COM, OP_COM, OP_COM, OP_COM, OP_COM, OP_COM, OP_COM, OP_COM, OP_COM, OP_COM
 instscnt: .WORD 0
+JTA:    .WORD JMPTBL
 // *********************************************************************************************
-//R0 (LE)
-//89ABCDEF01234567
-//ooo.WWWW0000oooo
-OP_0:   LSLS R1,R0,#2
-        ANDS R1,R7
-        ADR  R4,OP_00
-        LDR  R4,[R4,R1] // goto *OP_00 [INST & 0x0F];
-        MOV  PC,R4
-.align 4
-OP_00:  .WORD start, start, FMT_8, FMT_7, FMT_6, FMT_6, FMT_6, FMT_6, I_SRA, I_SRL, I_SLA, I_SRC, I_CALL_RET, I_PUSH, I_SLC, I_POP
-// *********************************************************************************************
-//R0 (LE)
-//89ABCDEF01234567
-//ooo.WWWW00000010
-FMT_8:  lSRS R6,R0,#7
-        MOVS R1,#0x1E
-        ANDS R6,R1
-        ADD  R6,R11 // DEST = WP + ((BYTE & 0x0F) << 1);
-        UXTH R6,R6
-        ADD  R6,R8
-        LSRS R1,R0,#11 // Top 3 bits to low byte, shifted left by 2
-        ANDS R1,R7     // Jump mask..
-        ADR  R4,OP_08
-        LDR  R4,[R4,R1] // goto *OP_08 [BYTE >> 5];
-        MOV  PC,R4
-.align 4
-OP_08:  .WORD I_LI, I_AI, I_ANDI, I_ORI, I_CI, I_STWP, I_STST, I_LWPI
+
+// Instructions
+
 // *********************************************************************************************
 //R0 (LE)
 //89ABCDEF01234567
 //ooo.WWWW00000011
-FMT_7:  LSRS R1,R0,#8 // BYTE
-        BNE  FMT_7_c2 // if (BYTE == 0x00) // I_LIMI / LIMI
-        ADDS R3,#2    // Skip LIMI's 2nd WORD
+I_LIMI: ADDS R3,#2    // Skip LIMI's 2nd WORD
         UXTH R3,R3
         MOV  R10,R3
         B    start
-FMT_7_c2:
-        CMP  R1,#0x40
-        BNE  FMT_7_c3 // if (BYTE == 0x40) // I_IDLE / IDLE - F18A Instruction
-        ADR  R0,RETCODEP1
+// *********************************************************************************************
+I_IDLE: ADR  R0,RETCODEP1
         LDR  R0,[R0,#0]
         MOV  R1,R10 // PC
         STR  R1,[R0,#0]
         B    ret9900 // Then quit the emulation
 .align 4
 RETCODEP1: .WORD RETCODE
-
-FMT_7_c3:
-        CMP  R1,#0x80
-        BNE  FMT_7_e // if (BYTE == 0x80) // I_RTWP / RTWP
-
-        MOV  R3,R11  // Get address of WP
+// *********************************************************************************************
+I_RTWP: MOV  R3,R11  // Get address of WP
         ADDS R3,#26   // R13 - start position for restoring return details
         ADDS R2,R3,#2 // R14
         ADDS R4,R3,#4 // R15
@@ -190,34 +163,13 @@ FMT_7_c3:
         LSRS R1,#1
         LSLS R1,#1 // R1 &= 0xFFFE
         MOV  R11,R1
-FMT_7_e:
         B    start
 // *********************************************************************************************
 //R0 (LE)
-//89ABCDEF01234567 (Format 2)
-//dddddddd0001oooo
-OP_1:   LSLS R1,R0,#2
-        ANDS R1,R7
-        LSRS R0,#8
-        SXTB R0,R0 // R0 now has a signed offset
-        LSLS R0,#1 // Word offset
-        MOV  R2,R12 // Need a working copy of ST
-        ADR  R4,JMPCRU
-        LDR  R4,[R4,R1] // goto *JMPCRU [INST & 0x0F];
-        MOV  PC,R4
-.align 4
-JMPCRU: .WORD I_JMP, I_JLT, I_JLE, I_JEQ, I_JHE, I_JGT, I_JNE, I_JNC, I_JOC, I_JNO, I_JL, I_JH, I_JOP, I_SBO, I_SBZ, I_TB
-// *********************************************************************************************
-
-// Instructions
-
-// *********************************************************************************************
-//R0 (LE)
 //89ABCDEF01234567 (Format 5)
-//CCCCWWWWOOOOOOOO
-I_SRA:  LSRS R5,R0,#7 // Get Register x 2
-        MOVS R4,#0x1E // Mask Register Address
-        ANDS R5,R4
+//CCCCWWWW00001ooo
+I_SRA:  LSLS R5,R0,#20
+        LSRS R5,#27 // Get Register x 2
         ADD  R5,R11 // Add WP
         UXTH R5,R5
         ADD  R5,R8
@@ -249,10 +201,9 @@ I_SRA_st:
 // *********************************************************************************************
 //R0 (LE)
 //89ABCDEF01234567 (Format 5)
-//CCCCWWWWOOOOOOOO
-I_SRL:  LSRS R5,R0,#7 // Get Register x 2
-        MOVS R4,#0x1E // Mask Register Address
-        ANDS R5,R4
+//CCCCWWWW00001001
+I_SRL:  LSLS R5,R0,#20
+        LSRS R5,#27 // Get Register x 2
         ADD  R5,R11 // Add WP
         UXTH R5,R5
         ADD  R5,R8
@@ -284,10 +235,9 @@ I_SRL_st:
 // *********************************************************************************************
 //R0 (LE)
 //89ABCDEF01234567 (Format 5)
-//CCCCWWWWOOOOOOOO
-I_SLA:  LSRS R5,R0,#7 // Get Register x 2
-        MOVS R4,#0x1E // Mask Register Address
-        ANDS R5,R4
+//CCCCWWWW00001010
+I_SLA:  LSLS R5,R0,#20
+        LSRS R5,#27 // Get Register x 2
         ADD  R5,R11 // Add WP
         UXTH R5,R5
         ADD  R5,R8
@@ -352,10 +302,9 @@ I_SLA_M: .WORD 0x0000, 0x4000, 0x6000, 0x7000, 0x7800, 0x7C00, 0x7E00, 0x7F00
 // *********************************************************************************************
 //R0 (LE)
 //89ABCDEF01234567 (Format 5)
-//CCCCWWWWOOOOOOOO
-I_SRC:  LSRS R5,R0,#7 // Get Register x 2
-        MOVS R4,#0x1E // Mask Register Address
-        ANDS R5,R4
+//CCCCWWWW00001011
+I_SRC:  LSLS R5,R0,#20
+        LSRS R5,#27 // Get Register x 2
         ADD  R5,R11 // Add WP
         UXTH R5,R5
         ADD  R5,R8
@@ -530,6 +479,7 @@ I_B:    MOV  R0,R8
         B    start
 // *********************************************************************************************
 I_X:    LDRH R0,[R5,#0] // R5=SRCE
+        MOV  R3,R10 // R3 has lost its PC+2 value by now
         B    startX
 // *********************************************************************************************
 I_CLR:  MOVS R0,#0
@@ -629,7 +579,6 @@ I_INCT_e:
 I_DEC:  MOV  R6,R5
         LDRH R2,[R6,#0] // R6=DEST
         REV16 R2,R2
-
         SUBS R3,R2,#1
 
         UXTH R0,R3 // Keep a clean copy
@@ -702,8 +651,8 @@ I_SWPB: LDRH R0,[R5,#0] // R5=SRCE
         B    start
 // *********************************************************************************************
 I_SETO: MOVS R0,0xFF
-        STRB R0,[R5,#0]
-        STRB R0,[R5,#1]
+        SXTB R0,R0
+        STRH R0,[R5,#0]
         B    start
 // *********************************************************************************************
 I_ABS:  LDRH R0,[R5,#0] // R5=SRCE
@@ -748,19 +697,17 @@ I_JMP_g:
 // *********************************************************************************************
 I_JLT:  MOVS R1,#0x60 // AG|EQ
         TST  R2,R1
-        BNE  I_JLT_e
+        BNE  I_JLT_e  // At least one of them was not zero
         ADD  R0,R10
         UXTH R0,R0 // Discard any extra
         MOV  R10,R0
 I_JLT_e:
         B    start
 // *********************************************************************************************
-I_JLE:  MOVS R1,#0x20 // EQ
-        TST  R2,R1
-        BNE  I_JLE_j
-        MOVS R1,#0x80 // LG
-        TST  R2,R1
-        BNE  I_JLE_e
+I_JLE:  LSRS R3,R2,#6 // EQ -> Carry
+        BCS  I_JLE_j
+        LSRS R3,R2,#8 // LG -> Carry
+        BCS  I_JLE_e
 I_JLE_j:
         ADD  R0,R10
         UXTH R0,R0 // Discard any extra
@@ -768,21 +715,18 @@ I_JLE_j:
 I_JLE_e:
         B    start
 // *********************************************************************************************
-I_JEQ:  MOVS R1,#0x20 // EQ
-        TST  R2,R1
-        BEQ  I_JEQ_e
+I_JEQ:  LSRS R3,R2,#6 // EQ -> Carry
+        BCC  I_JEQ_e
         ADD  R0,R10
         UXTH R0,R0 // Discard any extra
         MOV  R10,R0
 I_JEQ_e:
         B    start
 // *********************************************************************************************
-I_JHE:  MOVS R1,#0x20 // EQ
-        TST  R2,R1
-        BNE  I_JHE_j
-        MOVS R1,#0x80 // LG
-        TST  R2,R1
-        BEQ  I_JHE_e
+I_JHE:  LSRS R3,R2,#6 // EQ -> Carry
+        BCS  I_JHE_j
+        LSRS R3,R2,#8 // LG -> Carry
+        BCC  I_JHE_e
 I_JHE_j:
         ADD  R0,R10
         UXTH R0,R0 // Discard any extra
@@ -790,45 +734,40 @@ I_JHE_j:
 I_JHE_e:
         B    start
 // *********************************************************************************************
-I_JGT:  MOVS R1,#0x40 // AG
-        TST  R2,R1
-        BEQ  I_JGT_e
+I_JGT:  LSRS R3,R2,#7 // AG -> Carry
+        BCC  I_JGT_e
         ADD  R0,R10
         UXTH R0,R0 // Discard any extra
         MOV  R10,R0
 I_JGT_e:
         B    start
 // *********************************************************************************************
-I_JNE:  MOVS R1,#0x20 // EQ
-        TST  R2,R1
-        BNE  I_JNE_e
+I_JNE:  LSRS R3,R2,#6 // EQ -> Carry
+        BCS  I_JNE_e
         ADD  R0,R10
         UXTH R0,R0 // Discard any extra
         MOV  R10,R0
 I_JNE_e:
         B    start
 // *********************************************************************************************
-I_JNC:  MOVS R1,#0x10 // C
-        TST  R2,R1
-        BNE  I_JNC_e
+I_JNC:  LSRS R3,R2,#5 // C -> Carry
+        BCS  I_JNC_e
         ADD  R0,R10
         UXTH R0,R0 // Discard any extra
         MOV  R10,R0
 I_JNC_e:
         B    start
 // *********************************************************************************************
-I_JOC:  MOVS R1,#0x10 // C
-        TST  R2,R1
-        BEQ  I_JOC_e
+I_JOC:  LSRS R3,R2,#5 // C -> Carry
+        BCC  I_JOC_e
         ADD  R0,R10
         UXTH R0,R0 // Discard any extra
         MOV  R10,R0
 I_JOC_e:
         B    start
 // *********************************************************************************************
-I_JNO:  MOVS R1,#0x08 // OV
-        TST  R2,R1
-        BNE  I_JNO_e
+I_JNO:  LSRS R3,R2,#4 // O -> Carry
+        BCS  I_JNO_e
         ADD  R0,R10
         UXTH R0,R0 // Discard any extra
         MOV  R10,R0
@@ -844,21 +783,18 @@ I_JL:   MOVS R1,#0xA0 // LG|EQ
 I_JL_e:
         B    start
 // *********************************************************************************************
-I_JH:   MOVS R1,#0x20 // EQ
-        TST  R2,R1
-        BNE  I_JH_e
-        MOVS R1,#0x80 // LG
-        TST  R2,R1
-        BEQ  I_JH_e
+I_JH:   LSRS R3,R2,#6 // EQ -> Carry
+        BCS  I_JH_e
+        LSRS R3,R2,#8 // LG -> Carry
+        BCC  I_JH_e
         ADD  R0,R10
         UXTH R0,R0 // Discard any extra
         MOV  R10,R0
 I_JH_e:
         B    start
 // *********************************************************************************************
-I_JOP:  MOVS R1,#0x04 // P
-        TST  R2,R1
-        BEQ  I_JOP_e
+I_JOP:  LSRS R3,R2,#3 // P -> Carry
+        BCC  I_JOP_e
         ADD  R0,R10
         UXTH R0,R0 // Discard any extra
         MOV  R10,R0
@@ -1209,228 +1145,8 @@ I_SOCB: LDRB R0,[R6,#0]
 // *********************************************************************************************
 //R0 (LE)
 //89ABCDEF01234567
-//ooTsSSSS000000oo
-FMT_6:
-// *********************************************************************************************
-sdecode2a: // calculate S & SRCE
-        LSRS R1,R0,#7
-        MOVS R2,#0x1E
-        ANDS R1,R2 // Got S << 1
-        LSRS R2,R0,#10
-        MOVS R4,#0x0C
-        ANDS R2,R4 // Got TS * 4
-        ADR  R4,COM_S2a
-        LDR  R4,[R4,R2]
-        MOV  PC,R4
-.align 4
-COM_S2a: .WORD COM_S2a_R, COM_S2a_I, COM_S2a_L, COM_S2a_II
-COM_S2a_R:
-        MOV  R5,R11
-        ADD  R5,R1 // SRCE = WP + S;
-        UXTH R5,R5
-        B    COM_S2a_F
-COM_S2a_L:
-        ADDS R2,R3,#2
-        UXTH R2,R2
-        MOV  R10,R2
-        ADD  R3,R8
-        LDRH R5,[R3,#0] // SRCE = (memory [PC + 0] << 8) | memory [PC + 1];
-        REV16 R5,R5
-        CMP  R1,#0  // if (S) // Not R0?
-        BEQ  COM_S2a_F
-        ADD  R1,R11
-        UXTH R1,R1
-        ADD  R1,R8
-        LDRH R2,[R1,#0] // SRCE += (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R2,R2
-        ADD  R5,R2
-        UXTH R5,R5
-        B    COM_S2a_F
-COM_S2a_II:
-        ADD  R1,R11
-        UXTH R1,R1
-        ADD  R1,R8
-        LDRH R5,[R1,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R5,R5
-        ADDS R4,R5,#2
-        REV16 R4,R4
-        STRH R4,[R1,#0]
-        B    COM_S2a_F
-COM_S2a_I:
-        ADD  R1,R11
-        UXTH R1,R1
-        ADD  R1,R8
-        LDRH R5,[R1,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R5,R5
-COM_S2a_F:
-        LSRS R5,#1
-        LSLS R5,#1 // SRCE &= 0xFFFE
-        ADD  R5,R8
-// *********************************************************************************************
-        LSLS R1,R0,#4
-        LSRS R2,R0,#12
-        ORRS R1,R2
-        ANDS R1,R7
-        ADR  R4,OP_06
-        LDR  R4,[R4,R1] // goto *OP_06 [((INST & 0x03) << 2) | (BYTE >> 6)];
-        MOV  PC,R4
-.align 4
-OP_06:  .WORD I_BLWP, I_B, I_X, I_CLR, I_NEG, I_INV, I_INC, I_INCT, I_DEC, I_DECT, I_BL, I_SWPB, I_SETO, I_ABS, start, start
-// *********************************************************************************************
-//R0 (LE)
-//89ABCDEF01234567 (Format 3)
-//DDTsSSSS0010ooDD
-OP_2:
-// *********************************************************************************************
-sdecode2b: // calculate S & SRCE
-        LSRS R1,R0,#7
-        MOVS R2,#0x1E
-        ANDS R1,R2 // Got S << 1
-        LSRS R2,R0,#10
-        MOVS R4,#0x0C
-        ANDS R2,R4 // Got TS * 4
-        ADR  R4,COM_S2b
-        LDR  R4,[R4,R2]
-        MOV  PC,R4
-.align 4
-COM_S2b: .WORD COM_S2b_R, COM_S2b_I, COM_S2b_L, COM_S2b_II
-COM_S2b_R:
-        MOV  R5,R11
-        ADD  R5,R1 // SRCE = WP + S;
-        UXTH R5,R5
-        B    COM_S2b_F
-COM_S2b_L:
-        ADDS R2,R3,#2
-        UXTH R2,R2
-        MOV  R10,R2
-        ADD  R3,R8
-        LDRH R5,[R3,#0] // SRCE = (memory [PC + 0] << 8) | memory [PC + 1];
-        REV16 R5,R5
-        CMP  R1,#0  // if (S) // Not R0?
-        BEQ  COM_S2b_F
-        ADD  R1,R11
-        UXTH R1,R1
-        ADD  R1,R8
-        LDRH R2,[R1,#0] // SRCE += (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R2,R2
-        ADD  R5,R2
-        UXTH R5,R5
-        B    COM_S2b_F
-COM_S2b_II:
-        ADD  R1,R11
-        UXTH R1,R1
-        ADD  R1,R8
-        LDRH R5,[R1,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R5,R5
-        ADDS R4,R5,#2
-        REV16 R4,R4
-        STRH R4,[R1,#0]
-        B    COM_S2b_F
-COM_S2b_I:
-        ADD  R1,R11
-        UXTH R1,R1
-        ADD  R1,R8
-        LDRH R5,[R1,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R5,R5
-COM_S2b_F:
-        LSRS R5,#1
-        LSLS R5,#1 // SRCE &= 0xFFFE
-        ADD  R5,R8
-// *********************************************************************************************
-        LSLS R6,R0,#4 // D = (((INST & 0x03) << 2) | (BYTE >> 6)) << 1;
-        LSRS R2,R0,#12
-        ORRS R6,R2
-        ANDS R6,R7 // Re-use mask (needs shift 2)
-        LSRS R6,#1 // We were shifted 2 left, but we only wanted 1
-        ADD  R6,R11 // DEST = WP + D;
-        UXTH R6,R6
-        ADD  R6,R8
-        LDRH R5,[R5,#0]
-        REV16 R5,R5 // SRCE = (memory [SRCE + 0] << 8) | memory [SRCE + 1];
-        LDRH R4,[R6,#0]
-        REV16 R4,R4 // TEMP = (memory [DEST + 0] << 8) | memory [DEST + 1];
-        MOVS R2,#0x0C
-        ANDS R2,R0
-        ADR  R3,OP_2X
-        LDR  R3,[R3,R2] // goto *OP_2X [(INST & 0x0C) >> 2];
-        MOV  PC,R3
-.align 4
-OP_2X:  .WORD I_COC, I_CZC, I_XOR, I_XOP
-// *********************************************************************************************
-//R0 (LE)
-//89ABCDEF01234567 (Format 9)
-//DDTsSSSSOO11ooDD
-OP_3:   LSRS R1,R0,#4 // if ((INST & 0x08) == 0) // LDCR or STCR?  We don't support them - but we will increase PC if needed
-        BCS  OP_3GO // Bit was set
-        LSRS R1,R0,#8
-        MOVS R2,#0x30
-        ANDS R1,R2
-        CMP  R1,#0x20 // if ((BYTE & 0x30) == 0x20) Ts==2
-        BNE  OP_3NoINC
-        ADDS R3,#2 // PC += 2; // Skip CRU's 2nd word address
-        UXTH R3,R3
-        MOV  R10,R3
-OP_3NoINC:
-        BL   start
-
-OP_3GO:
-// *********************************************************************************************
-sdecode2c: // calculate S & SRCE
-        LSRS R1,R0,#7
-        MOVS R2,#0x1E
-        ANDS R1,R2 // Got S << 1
-        LSRS R2,R0,#10
-        MOVS R4,#0x0C
-        ANDS R2,R4 // Got TS * 4
-        ADR  R4,COM_S2c
-        LDR  R4,[R4,R2]
-        MOV  PC,R4
-.align 4
-COM_S2c: .WORD COM_S2c_R, COM_S2c_I, COM_S2c_L, COM_S2c_II
-COM_S2c_R:
-        MOV  R5,R11
-        ADD  R5,R1 // SRCE = WP + S;
-        UXTH R5,R5
-        B    COM_S2c_F
-COM_S2c_L:
-        ADDS R2,R3,#2
-        UXTH R2,R2
-        MOV  R10,R2
-        ADD  R3,R8
-        LDRH R5,[R3,#0] // SRCE = (memory [PC + 0] << 8) | memory [PC + 1];
-        REV16 R5,R5
-        CMP  R1,#0  // if (S) // Not R0?
-        BEQ  COM_S2c_F
-        ADD  R1,R11
-        UXTH R1,R1
-        ADD  R1,R8
-        LDRH R2,[R1,#0] // SRCE += (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R2,R2
-        ADD  R5,R2
-        UXTH R5,R5
-        B    COM_S2c_F
-COM_S2c_II:
-        ADD  R1,R11
-        UXTH R1,R1
-        ADD  R1,R8
-        LDRH R5,[R1,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R5,R5
-        ADDS R4,R5,#2
-        REV16 R4,R4
-        STRH R4,[R1,#0]
-        B    COM_S2c_F
-COM_S2c_I:
-        ADD  R1,R11
-        UXTH R1,R1
-        ADD  R1,R8
-        LDRH R5,[R1,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R5,R5
-COM_S2c_F:
-        LSRS R5,#1
-        LSLS R5,#1 // SRCE &= 0xFFFE
-        ADD  R5,R8
-// *********************************************************************************************
-        LDRH R5,[R5,#0] // R5=SRCE
+//DDTsSSSS00111xDD
+I_MUL:  LDRH R5,[R5,#0] // R5=SRCE
         REV16 R5,R5
 
         LSRS R6,R0,#13
@@ -1442,12 +1158,27 @@ COM_S2c_F:
         UXTH R6,R6
         ADD  R6,R8
 
-        MOVS R1,#0x0C
-        ANDS R0,R1
-        CMP  R0,R1 // if ((INST & 0x0C) == 0x0C) // DIV
-        BNE  I_MUL // else MUL
+        LDRH R0,[R6,#0]
+        REV16 R0,R0
+        MULS R0,R5
+        REV16 R0,R0
+        STRH R0,[R6,#2] // *** TODO: Possible overrun of the 64KB address space
+        LSRS R0,16
+        STRH R0,[R6,#0]
+        B    start
 // *********************************************************************************************
-I_DIV: // unreferenced, but searchable
+I_DIV:  LDRH R5,[R5,#0] // R5=SRCE
+        REV16 R5,R5
+
+        LSRS R6,R0,#13
+        LSLS R1,R0,#3
+        ORRS R6,R1
+        MOVS R2,#0x1E
+        ANDS R6,R2 // Got D << 1
+        ADD  R6,R11 // DEST = WP + D;
+        UXTH R6,R6
+        ADD  R6,R8
+
         LDRH R0,[R6,#0]
         REV16 R0,R0
         CMP   R5,R0
@@ -1489,35 +1220,188 @@ I_DEV_ov:
         ORRS R1,R4
         MOV  R12,R1
         BL   start
-// *********************************************************************************************
-I_MUL:
-        LDRH R0,[R6,#0]
-        REV16 R0,R0
-        MULS R0,R5
-        REV16 R0,R0
-        STRH R0,[R6,#2] // *** TODO: Possible overrun of the 64KB address space
-        LSRS R0,16
-        STRH R0,[R6,#0]
-        BL   start
-// *********************************************************************************************
-//R0 (LE)
-//89ABCDEF01234567
-//DDTsSSSSOOOBTdDD
-OP_COM: MOVS R1,#0x10
-        TST  R0,R1
-        BNE  byteop
 
 // *********************************************************************************************
 //R0 (LE)
 //89ABCDEF01234567
-//DDTsSSSSOOOBTdDD
+//ooo.WWWW00000010
+FMT_8:  LSLS R6,R0,#20
+        LSRS R6,#27
+        ADD  R6,R11 // DEST = WP + ((BYTE & 0x0F) << 1);
+        UXTH R6,R6
+        ADD  R6,R8
+        MOV  PC,R7
+// *********************************************************************************************
+//R0 (LE)
+//89ABCDEF01234567 (Format 2)
+//dddddddd0001oooo
+OP_1:   LSRS R0,#8
+        SXTB R0,R0 // R0 now has a signed offset
+        LSLS R0,#1 // Word offset
+        MOV  R2,R12 // Need a working copy of ST
+        MOV  PC,R7
+// *********************************************************************************************
+//R0 (LE)
+//89ABCDEF01234567 (Format 9)
+//DDTsSSSS00110oDD
+OP_3LO: LSRS R1,R0,#13 // if ((BYTE & 0x30) == 0x20) Ts==2 (already checked Ts high bit is 1)
+        BCS  OP_3NoINC // Carry Set - then it's not == 0x20
+        ADDS R3,#2 // PC += 2; // Skip CRU's 2nd word address
+        UXTH R3,R3
+        MOV  R10,R3
+OP_3NoINC:
+        BL   start
+// *********************************************************************************************
+//R0 (LE)
+//89ABCDEF01234567
+//ooTsSSSS000000oo
+// *********************************************************************************************
+sdecode2a: // calculate S & SRCE
+        LSLS R1,R0,#20 // Using the fact that the opcode never has the high bit set
+        LSRS R1,#27 // Got S << 1
+        LSRS R2,R0,#10
+        MOVS R4,#0x0C
+        ANDS R2,R4 // Got TS * 4
+        ADR  R4,COM_S2a
+        LDR  R4,[R4,R2]
+        MOV  PC,R4
+.align 4
+COM_S2a: .WORD COM_S2a_R, COM_S2a_I, COM_S2a_L, COM_S2a_II
+COM_S2a_R:
+        MOV  R5,R11
+        ADD  R5,R1 // SRCE = WP + S;
+        UXTH R5,R5
+        LSRS R5,#1
+        LSLS R5,#1 // SRCE &= 0xFFFE
+        ADD  R5,R8
+        MOV  PC,R7
+COM_S2a_L:
+        ADDS R2,R3,#2
+        UXTH R2,R2
+        MOV  R10,R2
+        ADD  R3,R8
+        LDRH R5,[R3,#0] // SRCE = (memory [PC + 0] << 8) | memory [PC + 1];
+        REV16 R5,R5
+        CMP  R1,#0  // if (S) // Not R0?
+        BEQ  COM_S2a_F
+        ADD  R1,R11
+        UXTH R1,R1
+        ADD  R1,R8
+        LDRH R2,[R1,#0] // SRCE += (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
+        REV16 R2,R2
+        ADD  R5,R2
+        UXTH R5,R5
+COM_S2a_F:
+        LSRS R5,#1
+        LSLS R5,#1 // SRCE &= 0xFFFE
+        ADD  R5,R8
+        MOV  PC,R7
+COM_S2a_II:
+        ADD  R1,R11
+        UXTH R1,R1
+        ADD  R1,R8
+        LDRH R5,[R1,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
+        REV16 R5,R5
+        ADDS R2,R5,#2
+        REV16 R2,R2
+        STRH R2,[R1,#0]
+        LSRS R5,#1
+        LSLS R5,#1 // SRCE &= 0xFFFE
+        ADD  R5,R8
+        MOV  PC,R7
+COM_S2a_I:
+        ADD  R1,R11
+        UXTH R1,R1
+        ADD  R1,R8
+        LDRH R5,[R1,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
+        REV16 R5,R5
+        LSRS R5,#1
+        LSLS R5,#1 // SRCE &= 0xFFFE
+        ADD  R5,R8
+        MOV  PC,R7
+// *********************************************************************************************
+//R0 (LE)
+//89ABCDEF01234567 (Format 3)
+//DDTsSSSS0010ooDD
+// *********************************************************************************************
+sdecode2b: // calculate S & SRCE
+        LSLS R1,R0,#20 // Using the fact that the opcode never has the high bit set
+        LSRS R1,#27 // Got S << 1
+        LSRS R2,R0,#10
+        MOVS R4,#0x0C
+        ANDS R2,R4 // Got TS * 4
+        ADR  R4,COM_S2b
+        LDR  R4,[R4,R2]
+        MOV  PC,R4
+.align 4
+COM_S2b: .WORD COM_S2b_R, COM_S2b_I, COM_S2b_L, COM_S2b_II
+COM_S2b_R:
+        MOV  R5,R11
+        ADD  R5,R1 // SRCE = WP + S;
+        UXTH R5,R5
+        B    COM_S2b_F
+COM_S2b_L:
+        ADDS R2,R3,#2
+        UXTH R2,R2
+        MOV  R10,R2
+        ADD  R3,R8
+        LDRH R5,[R3,#0] // SRCE = (memory [PC + 0] << 8) | memory [PC + 1];
+        REV16 R5,R5
+        CMP  R1,#0  // if (S) // Not R0?
+        BEQ  COM_S2b_F
+        ADD  R1,R11
+        UXTH R1,R1
+        ADD  R1,R8
+        LDRH R2,[R1,#0] // SRCE += (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
+        REV16 R2,R2
+        ADD  R5,R2
+        UXTH R5,R5
+        B    COM_S2b_F
+COM_S2b_II:
+        ADD  R1,R11
+        UXTH R1,R1
+        ADD  R1,R8
+        LDRH R5,[R1,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
+        REV16 R5,R5
+        ADDS R2,R5,#2
+        REV16 R2,R2
+        STRH R2,[R1,#0]
+        B    COM_S2b_F
+COM_S2b_I:
+        ADD  R1,R11
+        UXTH R1,R1
+        ADD  R1,R8
+        LDRH R5,[R1,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
+        REV16 R5,R5
+COM_S2b_F:
+        LSRS R5,#1
+        LSLS R5,#1 // SRCE &= 0xFFFE
+        ADD  R5,R8
+// *********************************************************************************************
+        LSLS R6,R0,#3 // D = (((INST & 0x03) << 2) | (BYTE >> 6)) << 1;
+        LSRS R2,R0,#13
+        ORRS R6,R2
+        MOVS R2,#0x1E
+        ANDS R6,R2
+        ADD  R6,R11 // DEST = WP + D;
+        UXTH R6,R6
+        ADD  R6,R8
+        LDRH R5,[R5,#0]
+        REV16 R5,R5 // SRCE = (memory [SRCE + 0] << 8) | memory [SRCE + 1];
+        LDRH R4,[R6,#0]
+        REV16 R4,R4 // TEMP = (memory [DEST + 0] << 8) | memory [DEST + 1];
+        MOV  PC,R7
+// *********************************************************************************************
+//R0 (LE)
+//89ABCDEF01234567
+//DDTsSSSSoooBTdDD
 sdecode2d: // calculate S & SRCE
         LSRS R1,R0,#7
         MOVS R2,#0x1E
         ANDS R1,R2 // Got S << 1
         LSRS R2,R0,#10
-        MOVS R4,#0x0C
-        ANDS R2,R4 // Got TS * 4
+        MOVS R6,#0x0C
+        ANDS R2,R6 // Got TS * 4
         ADR  R4,COM_S2d
         LDR  R4,[R4,R2]
         MOV  PC,R4
@@ -1551,9 +1435,9 @@ COM_S2d_II:
         ADD  R1,R8
         LDRH R5,[R1,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
         REV16 R5,R5
-        ADDS R4,R5,#2
-        REV16 R4,R4
-        STRH R4,[R1,#0]
+        ADDS R2,R5,#2
+        REV16 R2,R2
+        STRH R2,[R1,#0]
         B    COM_S2d_F
 COM_S2d_I:
         ADD  R1,R11
@@ -1569,18 +1453,13 @@ COM_S2d_F:
         LDRH R5,[R5,#0] // R5=SRCE
         REV16 R5,R5
 // *********************************************************************************************
-//R0 (LE)
-//89ABCDEF01234567
-//DDTsSSSSOOOBTdDD
-ddecode2: // calculate D & DEST
         LSRS R1,R0,#13
         LSLS R2,R0,#3
         ORRS R1,R2
-        MOVS R4,#0x1E
-        ANDS R1,R4 // Got D << 1
-        MOV  R2,R0
-        MOVS R4,#0x0C
-        ANDS R2,R4 // Got TD * 4
+        MOVS R2,#0x1E
+        ANDS R1,R2 // Got D << 1
+        MOVS R2,R0
+        ANDS R2,R6 // Got TD * 4
         ADR  R4,COM_D2
         LDR  R4,[R4,R2]
         MOV  PC,R4
@@ -1615,9 +1494,9 @@ COM_D2_II:
         ADD  R1,R8
         LDRH R6,[R1,#0] // DEST = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
         REV16 R6,R6
-        ADDS R4,R6,#2
-        REV16 R4,R4
-        STRH R4,[R1,#0]
+        ADDS R2,R6,#2
+        REV16 R2,R2
+        STRH R2,[R1,#0]
         B    COM_D2_F
 COM_D2_I:
         ADD  R1,R11
@@ -1629,25 +1508,19 @@ COM_D2_F:
         LSRS R6,#1
         LSLS R6,#1 // DEST &= 0xFFFE
         ADD  R6,R8
-// *********************************************************************************************
-        LSRS R1,R0,#2 // high nibble right
-        ANDS R1,R7
-        ADR  R4,OPCOD2
-        LDR  R4,[R4,R1] // goto *OPCODE [INST >> 4];
-        MOV  PC,R4
+        MOV  PC,R7
 
-byteop:
 // *********************************************************************************************
 //R0 (LE)
 //89ABCDEF01234567
 //DDTsSSSSOOOBTdDD
-sdecode1: // calculate S & SRCE
+sdecode1d: // calculate S & SRCE
         LSRS R1,R0,#7
         MOVS R2,#0x1E
         ANDS R1,R2 // Got S << 1
         LSRS R2,R0,#10
-        MOVS R4,#0x0C
-        ANDS R2,R4 // Got TS * 4
+        MOVS R6,#0x0C
+        ANDS R2,R6 // Got TS * 4
         ADR  R4,COM_S1
         LDR  R4,[R4,R2]
         MOV  PC,R4
@@ -1681,9 +1554,9 @@ COM_S1_II:
         ADD  R1,R8
         LDRH R5,[R1,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
         REV16 R5,R5
-        ADDS R4,R5,#1
-        REV16 R4,R4
-        STRH R4,[R1,#0]
+        ADDS R2,R5,#1
+        REV16 R2,R2
+        STRH R2,[R1,#0]
         B    COM_S1_L_e
 COM_S1_I:
         ADD  R1,R11
@@ -1696,18 +1569,13 @@ COM_S1_L_e:
 // *********************************************************************************************
         LDRB R5,[R5,#0] // R5=SRCE
 // *********************************************************************************************
-//R0 (LE)
-//89ABCDEF01234567
-//DDTsSSSSOOOBTdDD
-ddecode1: // calculate D & DEST
         LSRS R1,R0,#13
         LSLS R2,R0,#3
         ORRS R1,R2
-        MOVS R4,#0x1E
-        ANDS R1,R4 // Got D << 1
-        MOV  R2,R0
-        MOVS R4,#0x0C
-        ANDS R2,R4 // Got TD * 4
+        MOVS R2,#0x1E
+        ANDS R1,R2 // Got D << 1
+        MOVS R2,R0
+        ANDS R2,R6 // Got TD * 4
         ADR  R4,COM_D1
         LDR  R4,[R4,R2]
         MOV  PC,R4
@@ -1742,9 +1610,9 @@ COM_D1_II:
         ADD  R1,R8
         LDRH R6,[R1,#0] // DEST = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
         REV16 R6,R6
-        ADDS R4,R6,#1
-        REV16 R4,R4
-        STRH R4,[R1,#0]
+        ADDS R2,R6,#1
+        REV16 R2,R2
+        STRH R2,[R1,#0]
         B    COM_D1_L_e
 COM_D1_I:
         ADD  R1,R11
@@ -1754,15 +1622,8 @@ COM_D1_I:
         REV16 R6,R6
 COM_D1_L_e:
         ADD  R6,R8
-// *********************************************************************************************
-        LSRS R1,R0,#2 // high nibble Right
-        ANDS R1,R7
-        ADR  R4,OPCOD2
-        LDR  R4,[R4,R1] // goto *OPCODE [INST >> 4];
-        MOV  PC,R4
+        MOV  PC,R7
 
-.align 4   // OP_0, OP_1, OP_2, OP_3 are ignored - they were handled earlier
-OPCOD2: .WORD OP_0, OP_1, OP_2, OP_3, I_SZC, I_SZCB, I_S, I_SB, I_C, I_CB, I_A, I_AB, I_MOV, I_MOVB, I_SOC, I_SOCB
 // *********************************************************************************************
 
 // F18A Instructions
@@ -1814,13 +1675,6 @@ I_XOP_BL:
 //R0 (LE)
 //89ABCDEF01234567 (Format 7)
 //oo00000000001100
-I_CALL_RET:
-        LSRS R1,R0,#14 // INST 0x0C Format 6/7 has 2 extra bits to check
-        BNE  I_CALL // Result was not zero - can't be RET
-// *********************************************************************************************
-        LSRS R0,#8
-        BNE  I_RET_e // For RET, BYTE must be exactly 0x00
-
 I_RET:  MOV  R0,R11 // WP
         ADDS R0,#30 // R15
         UXTH R0,R0
@@ -1848,12 +1702,7 @@ I_RET_e:
 //R0 (LE)
 //89ABCDEF01234567 (Format 6)
 //10TsSSSS00001100
-I_CALL: CMP  R1,#0x02
-        BNE  I_CALL_e // For CALL, BYTE >> 6 must be exactly 0x02
-
-        BL   sdecode2
-
-        MOV  R0,R11 // WP
+I_CALL: MOV  R0,R11 // WP
         ADDS R0,#30 // R15
         UXTH R0,R0
         ADD  R0,R8
@@ -1875,17 +1724,12 @@ I_CALL: CMP  R1,#0x02
         MOV  R0,R8
         SUBS R5,R0 // Normalise
         MOV  R10,R5 // PC
-I_CALL_e:
         BL   start
 // *********************************************************************************************
 //R0 (LE)
 //89ABCDEF01234567 (Format 6)
 //00TsSSSS00001101
-I_PUSH: LSRS R1,R0,#14 // Format 6 has 2 extra bits to check
-        BNE  I_PUSH_e // Result was not zero - can't be PUSH
-
-        BL   sdecode2
-        LDRH R5,[R5,#0] // R5=SRCE
+I_PUSH: LDRH R5,[R5,#0] // R5=SRCE
 
         MOV  R0,R11 // WP
         ADDS R0,#30 // R15
@@ -1903,18 +1747,12 @@ I_PUSH: LSRS R1,R0,#14 // Format 6 has 2 extra bits to check
         ADD  R1,R8
 
         STRH R5,[R1,#0] // Old *R15
-I_PUSH_e:
         BL   start
 // *********************************************************************************************
 //R0 (LE)
 //89ABCDEF01234567 (Format 6)
 //00TsSSSS00001111
-I_POP:  LSRS R1,R0,#14 // Format 6 has 2 extra bits to check
-        BNE  I_POP_e // Result was not zero - can't be POP
-
-        BL   sdecode2
-
-        MOV  R0,R11 // WP
+I_POP:  MOV  R0,R11 // WP
         ADDS R0,#30 // R15
         UXTH R0,R0
         ADD  R0,R8
@@ -1931,16 +1769,14 @@ I_POP:  LSRS R1,R0,#14 // Format 6 has 2 extra bits to check
 
         LDRH R0,[R1,#0] // *R15
         STRH R0,[R5,#0] // R5=DEST
-I_POP_e:
         BL   start
 // *********************************************************************************************
 I_SLC:
 //R0 (LE)
 //89ABCDEF01234567 (Format 5)
-//CCCCWWWWOOOOOOOO
-I_SLC:  LSRS R5,R0,#7 // Get Register x 2
-        MOVS R4,#0x1E // Mask Register Address
-        ANDS R5,R4
+//CCCCWWWW00001110
+I_SLC:  LSLS R5,R0,#20
+        LSRS R5,#27 // Get Register x 2
         ADD  R5,R11 // Add WP
         UXTH R5,R5
         ADD  R5,R8
@@ -1976,61 +1812,261 @@ I_SLC_st:
         STRH R2,[R5,#0]
         B    OP_COMP_W
 // *********************************************************************************************
-//R0 (LE)
-//89ABCDEF01234567
-//ooTsSSSSoooooooo
-sdecode2: // calculate S & SRCE
-        LSRS R1,R0,#7
-        MOVS R2,#0x1E
-        ANDS R1,R2 // Got S << 1
-        LSRS R2,R0,#10
-        MOVS R4,#0x0C
-        ANDS R2,R4 // Got TS * 4
-        ADR  R4,COM_S2
-        LDR  R4,[R4,R2]
-        MOV  PC,R4
+.section .rodata  // In FLASH
 .align 4
-COM_S2: .WORD COM_S2_R, COM_S2_I, COM_S2_L, COM_S2_II
-COM_S2_R:
-        MOV  R5,R11
-        ADD  R5,R1 // SRCE = WP + S;
-        UXTH R5,R5
-        B    COM_S2_F
-COM_S2_L:
-        ADDS R2,R3,#2
-        UXTH R2,R2
-        MOV  R10,R2
-        ADD  R3,R8
-        LDRH R5,[R3,#0] // SRCE = (memory [PC + 0] << 8) | memory [PC + 1];
-        REV16 R5,R5
-        CMP  R1,#0  // if (S) // Not R0?
-        BEQ  COM_S2_F
-        ADD  R1,R11
-        UXTH R1,R1
-        ADD  R1,R8
-        LDRH R2,[R1,#0] // SRCE += (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R2,R2
-        ADD  R5,R2
-        UXTH R5,R5
-        B    COM_S2_F
-COM_S2_II:
-        ADD  R1,R11
-        UXTH R1,R1
-        ADD  R1,R8
-        LDRH R5,[R1,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R5,R5
-        ADDS R4,R5,#2
-        REV16 R4,R4
-        STRH R4,[R1,#0]
-        B    COM_S2_F
-COM_S2_I:
-        ADD  R1,R11
-        UXTH R1,R1
-        ADD  R1,R8
-        LDRH R5,[R1,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R5,R5
-COM_S2_F:
-        LSRS R5,#1
-        LSLS R5,#1 // SRCE &= 0xFFFE
-        ADD  R5,R8
-        MOV  PC,LR
+JMPTBL: .WORD start    , 0     , start    , 0     , start    , 0     , start    , 0     , start    , 0     , start    , 0     , start    , 0     , start    , 0        // >0000
+        .WORD start    , 0     , start    , 0     , start    , 0     , start    , 0     , start    , 0     , start    , 0     , start    , 0     , start    , 0        // >0100
+        .WORD FMT_8    , I_LI  , FMT_8    , I_AI  , FMT_8    , I_ANDI, FMT_8    , I_ORI , FMT_8    , I_CI  , FMT_8    , I_STWP, FMT_8    , I_STST, FMT_8    , I_LWPI   // >0200
+        .WORD I_LIMI   , 0     , start    , 0     , I_IDLE   , 0     , start    , 0     , I_RTWP   , 0     , start    , 0     , start    , 0     , start    , 0        // >0300
+        .WORD sdecode2a, I_BLWP, sdecode2a, I_BLWP, sdecode2a, I_B   , sdecode2a, I_B   , sdecode2a, I_X   , sdecode2a, I_X   , sdecode2a, I_CLR , sdecode2a, I_CLR    // >0400
+        .WORD sdecode2a, I_NEG , sdecode2a, I_NEG , sdecode2a, I_INV , sdecode2a, I_INV , sdecode2a, I_INC , sdecode2a, I_INC , sdecode2a, I_INCT, sdecode2a, I_INCT   // >0500
+        .WORD sdecode2a, I_DEC , sdecode2a, I_DEC , sdecode2a, I_DECT, sdecode2a, I_DECT, sdecode2a, I_BL  , sdecode2a, I_BL  , sdecode2a, I_SWPB, sdecode2a, I_SWPB   // >0600
+        .WORD sdecode2a, I_SETO, sdecode2a, I_SETO, sdecode2a, I_ABS , sdecode2a, I_ABS , start    , 0     , start    , 0     , start    , 0     , start    , 0        // >0700
+        .WORD I_SRA    , 0     , I_SRA    , 0     , I_SRA    , 0     , I_SRA    , 0     , I_SRA    , 0     , I_SRA    , 0     , I_SRA    , 0     , I_SRA    , 0        // >0800
+        .WORD I_SRL    , 0     , I_SRL    , 0     , I_SRL    , 0     , I_SRL    , 0     , I_SRL    , 0     , I_SRL    , 0     , I_SRL    , 0     , I_SRL    , 0        // >0900
+        .WORD I_SLA    , 0     , I_SLA    , 0     , I_SLA    , 0     , I_SLA    , 0     , I_SLA    , 0     , I_SLA    , 0     , I_SLA    , 0     , I_SLA    , 0        // >0A00
+        .WORD I_SRC    , 0     , I_SRC    , 0     , I_SRC    , 0     , I_SRC    , 0     , I_SRC    , 0     , I_SRC    , 0     , I_SRC    , 0     , I_SRC    , 0        // >0B00
+        .WORD I_RET    , 0     , start    , 0     , start    , 0     , start    , 0     , sdecode2a, I_CALL, sdecode2a, I_CALL, start    , 0     , start    , 0        // >0C00
+        .WORD sdecode2a, I_PUSH, sdecode2a, I_PUSH, start    , 0     , start    , 0     , start    , 0     , start    , 0     , start    , 0     , start    , 0        // >0D00
+        .WORD I_SLC    , 0     , I_SLC    , 0     , start    , 0     , start    , 0     , start    , 0     , start    , 0     , start    , 0     , start    , 0        // >0E00
+        .WORD sdecode2a, I_POP , sdecode2a, I_POP , start    , 0     , start    , 0     , start    , 0     , start    , 0     , start    , 0     , start    , 0        // >0F00
+        .WORD OP_1     , I_JMP , OP_1     , I_JMP , OP_1     , I_JMP , OP_1     , I_JMP , OP_1     , I_JMP , OP_1     , I_JMP , OP_1     , I_JMP , OP_1     , I_JMP    // >1000
+        .WORD OP_1     , I_JLT , OP_1     , I_JLT , OP_1     , I_JLT , OP_1     , I_JLT , OP_1     , I_JLT , OP_1     , I_JLT , OP_1     , I_JLT , OP_1     , I_JLT    // >1100
+        .WORD OP_1     , I_JLE , OP_1     , I_JLE , OP_1     , I_JLE , OP_1     , I_JLE , OP_1     , I_JLE , OP_1     , I_JLE , OP_1     , I_JLE , OP_1     , I_JLE    // >1200
+        .WORD OP_1     , I_JEQ , OP_1     , I_JEQ , OP_1     , I_JEQ , OP_1     , I_JEQ , OP_1     , I_JEQ , OP_1     , I_JEQ , OP_1     , I_JEQ , OP_1     , I_JEQ    // >1300
+        .WORD OP_1     , I_JHE , OP_1     , I_JHE , OP_1     , I_JHE , OP_1     , I_JHE , OP_1     , I_JHE , OP_1     , I_JHE , OP_1     , I_JHE , OP_1     , I_JHE    // >1400
+        .WORD OP_1     , I_JGT , OP_1     , I_JGT , OP_1     , I_JGT , OP_1     , I_JGT , OP_1     , I_JGT , OP_1     , I_JGT , OP_1     , I_JGT , OP_1     , I_JGT    // >1500
+        .WORD OP_1     , I_JNE , OP_1     , I_JNE , OP_1     , I_JNE , OP_1     , I_JNE , OP_1     , I_JNE , OP_1     , I_JNE , OP_1     , I_JNE , OP_1     , I_JNE    // >1600
+        .WORD OP_1     , I_JNC , OP_1     , I_JNC , OP_1     , I_JNC , OP_1     , I_JNC , OP_1     , I_JNC , OP_1     , I_JNC , OP_1     , I_JNC , OP_1     , I_JNC    // >1700
+        .WORD OP_1     , I_JOC , OP_1     , I_JOC , OP_1     , I_JOC , OP_1     , I_JOC , OP_1     , I_JOC , OP_1     , I_JOC , OP_1     , I_JOC , OP_1     , I_JOC    // >1800
+        .WORD OP_1     , I_JNO , OP_1     , I_JNO , OP_1     , I_JNO , OP_1     , I_JNO , OP_1     , I_JNO , OP_1     , I_JNO , OP_1     , I_JNO , OP_1     , I_JNO    // >1900
+        .WORD OP_1     , I_JL  , OP_1     , I_JL  , OP_1     , I_JL  , OP_1     , I_JL  , OP_1     , I_JL  , OP_1     , I_JL  , OP_1     , I_JL  , OP_1     , I_JL     // >1A00
+        .WORD OP_1     , I_JH  , OP_1     , I_JH  , OP_1     , I_JH  , OP_1     , I_JH  , OP_1     , I_JH  , OP_1     , I_JH  , OP_1     , I_JH  , OP_1     , I_JH     // >1B00
+        .WORD OP_1     , I_JOP , OP_1     , I_JOP , OP_1     , I_JOP , OP_1     , I_JOP , OP_1     , I_JOP , OP_1     , I_JOP , OP_1     , I_JOP , OP_1     , I_JOP    // >1C00
+        .WORD OP_1     , I_SBO , OP_1     , I_SBO , OP_1     , I_SBO , OP_1     , I_SBO , OP_1     , I_SBO , OP_1     , I_SBO , OP_1     , I_SBO , OP_1     , I_SBO    // >1D00
+        .WORD OP_1     , I_SBZ , OP_1     , I_SBZ , OP_1     , I_SBZ , OP_1     , I_SBZ , OP_1     , I_SBZ , OP_1     , I_SBZ , OP_1     , I_SBZ , OP_1     , I_SBZ    // >1E00
+        .WORD OP_1     , I_TB  , OP_1     , I_TB  , OP_1     , I_TB  , OP_1     , I_TB  , OP_1     , I_TB  , OP_1     , I_TB  , OP_1     , I_TB  , OP_1     , I_TB     // >1F00
+        .WORD sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC    // >2000
+        .WORD sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC    // >2100
+        .WORD sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC    // >2200
+        .WORD sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC , sdecode2b, I_COC    // >2300
+        .WORD sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC    // >2400
+        .WORD sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC    // >2500
+        .WORD sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC    // >2600
+        .WORD sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC , sdecode2b, I_CZC    // >2700
+        .WORD sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR    // >2800
+        .WORD sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR    // >2900
+        .WORD sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR    // >2A00
+        .WORD sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR , sdecode2b, I_XOR    // >2B00
+        .WORD sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP    // >2C00
+        .WORD sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP    // >2D00
+        .WORD sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP    // >2E00
+        .WORD sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP , sdecode2b, I_XOP    // >2F00
+        .WORD start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0        // >3000
+        .WORD start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0        // >3100
+        .WORD start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0        // >3200
+        .WORD start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0        // >3300
+        .WORD start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0        // >3400
+        .WORD start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0        // >3500
+        .WORD start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0        // >3600
+        .WORD start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0     , start    , 0     , OP_3LO   , 0        // >3700
+        .WORD sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL    // >3800
+        .WORD sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL    // >3900
+        .WORD sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL    // >3A00
+        .WORD sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL , sdecode2a, I_MUL    // >3B00
+        .WORD sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV    // >3C00
+        .WORD sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV    // >3D00
+        .WORD sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV    // >3E00
+        .WORD sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV , sdecode2a, I_DIV    // >3F00
+        .WORD sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC    // >4000
+        .WORD sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC    // >4100
+        .WORD sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC    // >4200
+        .WORD sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC    // >4300
+        .WORD sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC    // >4400
+        .WORD sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC    // >4500
+        .WORD sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC    // >4600
+        .WORD sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC    // >4700
+        .WORD sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC    // >4800
+        .WORD sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC    // >4900
+        .WORD sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC    // >4A00
+        .WORD sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC    // >4B00
+        .WORD sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC    // >4C00
+        .WORD sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC    // >4D00
+        .WORD sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC    // >4E00
+        .WORD sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC , sdecode2d, I_SZC    // >4F00
+        .WORD sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB   // >5000
+        .WORD sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB   // >5100
+        .WORD sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB   // >5200
+        .WORD sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB   // >5300
+        .WORD sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB   // >5400
+        .WORD sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB   // >5500
+        .WORD sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB   // >5600
+        .WORD sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB   // >5700
+        .WORD sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB   // >5800
+        .WORD sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB   // >5900
+        .WORD sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB   // >5A00
+        .WORD sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB   // >5B00
+        .WORD sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB   // >5C00
+        .WORD sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB   // >5D00
+        .WORD sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB   // >5E00
+        .WORD sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB, sdecode1d, I_SZCB   // >5F00
+        .WORD sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S      // >6000
+        .WORD sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S      // >6100
+        .WORD sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S      // >6200
+        .WORD sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S      // >6300
+        .WORD sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S      // >6400
+        .WORD sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S      // >6500
+        .WORD sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S      // >6600
+        .WORD sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S      // >6700
+        .WORD sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S      // >6800
+        .WORD sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S      // >6900
+        .WORD sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S      // >6A00
+        .WORD sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S      // >6B00
+        .WORD sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S      // >6C00
+        .WORD sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S      // >6D00
+        .WORD sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S      // >6E00
+        .WORD sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S   , sdecode2d, I_S      // >6F00
+        .WORD sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB     // >7000
+        .WORD sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB     // >7100
+        .WORD sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB     // >7200
+        .WORD sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB     // >7300
+        .WORD sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB     // >7400
+        .WORD sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB     // >7500
+        .WORD sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB     // >7600
+        .WORD sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB     // >7700
+        .WORD sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB     // >7800
+        .WORD sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB     // >7900
+        .WORD sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB     // >7A00
+        .WORD sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB     // >7B00
+        .WORD sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB     // >7C00
+        .WORD sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB     // >7D00
+        .WORD sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB     // >7E00
+        .WORD sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB  , sdecode1d, I_SB     // >7F00
+        .WORD sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C      // >8000
+        .WORD sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C      // >8100
+        .WORD sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C      // >8200
+        .WORD sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C      // >8300
+        .WORD sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C      // >8400
+        .WORD sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C      // >8500
+        .WORD sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C      // >8600
+        .WORD sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C      // >8700
+        .WORD sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C      // >8800
+        .WORD sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C      // >8900
+        .WORD sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C      // >8A00
+        .WORD sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C      // >8B00
+        .WORD sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C      // >8C00
+        .WORD sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C      // >8D00
+        .WORD sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C      // >8E00
+        .WORD sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C   , sdecode2d, I_C      // >8F00
+        .WORD sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB     // >9000
+        .WORD sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB     // >9100
+        .WORD sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB     // >9200
+        .WORD sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB     // >9300
+        .WORD sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB     // >9400
+        .WORD sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB     // >9500
+        .WORD sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB     // >9600
+        .WORD sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB     // >9700
+        .WORD sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB     // >9800
+        .WORD sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB     // >9900
+        .WORD sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB     // >9A00
+        .WORD sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB     // >9B00
+        .WORD sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB     // >9C00
+        .WORD sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB     // >9D00
+        .WORD sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB     // >9E00
+        .WORD sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB  , sdecode1d, I_CB     // >9F00
+        .WORD sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A      // >A000
+        .WORD sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A      // >A100
+        .WORD sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A      // >A200
+        .WORD sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A      // >A300
+        .WORD sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A      // >A400
+        .WORD sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A      // >A500
+        .WORD sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A      // >A600
+        .WORD sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A      // >A700
+        .WORD sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A      // >A800
+        .WORD sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A      // >A900
+        .WORD sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A      // >AA00
+        .WORD sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A      // >AB00
+        .WORD sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A      // >AC00
+        .WORD sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A      // >AD00
+        .WORD sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A      // >AE00
+        .WORD sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A   , sdecode2d, I_A      // >AF00
+        .WORD sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB     // >B000
+        .WORD sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB     // >B100
+        .WORD sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB     // >B200
+        .WORD sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB     // >B300
+        .WORD sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB     // >B400
+        .WORD sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB     // >B500
+        .WORD sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB     // >B600
+        .WORD sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB     // >B700
+        .WORD sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB     // >B800
+        .WORD sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB     // >B900
+        .WORD sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB     // >BA00
+        .WORD sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB     // >BB00
+        .WORD sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB     // >BC00
+        .WORD sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB     // >BD00
+        .WORD sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB     // >BE00
+        .WORD sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB  , sdecode1d, I_AB     // >BF00
+        .WORD sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV    // >C000
+        .WORD sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV    // >C100
+        .WORD sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV    // >C200
+        .WORD sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV    // >C300
+        .WORD sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV    // >C400
+        .WORD sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV    // >C500
+        .WORD sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV    // >C600
+        .WORD sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV    // >C700
+        .WORD sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV    // >C800
+        .WORD sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV    // >C900
+        .WORD sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV    // >CA00
+        .WORD sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV    // >CB00
+        .WORD sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV    // >CC00
+        .WORD sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV    // >CD00
+        .WORD sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV    // >CE00
+        .WORD sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV , sdecode2d, I_MOV    // >CF00
+        .WORD sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB   // >D000
+        .WORD sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB   // >D100
+        .WORD sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB   // >D200
+        .WORD sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB   // >D300
+        .WORD sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB   // >D400
+        .WORD sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB   // >D500
+        .WORD sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB   // >D600
+        .WORD sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB   // >D700
+        .WORD sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB   // >D800
+        .WORD sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB   // >D900
+        .WORD sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB   // >DA00
+        .WORD sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB   // >DB00
+        .WORD sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB   // >DC00
+        .WORD sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB   // >DD00
+        .WORD sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB   // >DE00
+        .WORD sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB, sdecode1d, I_MOVB   // >DF00
+        .WORD sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC    // >E000
+        .WORD sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC    // >E100
+        .WORD sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC    // >E200
+        .WORD sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC    // >E300
+        .WORD sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC    // >E400
+        .WORD sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC    // >E500
+        .WORD sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC    // >E600
+        .WORD sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC    // >E700
+        .WORD sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC    // >E800
+        .WORD sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC    // >E900
+        .WORD sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC    // >EA00
+        .WORD sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC    // >EB00
+        .WORD sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC    // >EC00
+        .WORD sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC    // >ED00
+        .WORD sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC    // >EE00
+        .WORD sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC , sdecode2d, I_SOC    // >EF00
+        .WORD sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB   // >F000
+        .WORD sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB   // >F100
+        .WORD sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB   // >F200
+        .WORD sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB   // >F300
+        .WORD sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB   // >F400
+        .WORD sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB   // >F500
+        .WORD sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB   // >F600
+        .WORD sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB   // >F700
+        .WORD sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB   // >F800
+        .WORD sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB   // >F900
+        .WORD sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB   // >FA00
+        .WORD sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB   // >FB00
+        .WORD sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB   // >FC00
+        .WORD sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB   // >FD00
+        .WORD sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB   // >FE00
+        .WORD sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB, sdecode1d, I_SOCB   // >FF00

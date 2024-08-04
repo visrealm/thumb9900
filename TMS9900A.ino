@@ -243,10 +243,10 @@ void setup () {
 }
 
 extern "C" void IN_RAM(debug_print) (int r0, int r1, int r2, int r3) {
-    SERIALOUT.printf ("R0 = %08X\n", r0);
+    //SERIALOUT.printf ("R0 = %08X\n", r0);
     SERIALOUT.printf ("R1 = %08X\n", r1);
-    SERIALOUT.printf ("R2 = %08X\n", r2);
-    SERIALOUT.printf ("R3 = %08X\n", r3);
+    //SERIALOUT.printf ("R2 = %08X\n", r2);
+    //SERIALOUT.printf ("R3 = %08X\n", r3);
 }
 
 void loop () {
@@ -256,6 +256,7 @@ void loop () {
     if (now - last >= 1000) {
         last = now;
         SERIALOUT.printf ("cnt = %d\n", instscnt);
+        instscnt = 0;
         instscnt = 0;
         instscnt = 0;
         instscnt = 0; // Clobber the other CPU's increment
