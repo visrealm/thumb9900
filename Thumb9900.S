@@ -451,11 +451,9 @@ I_INC:  LDRH R2,[R5,#0] // R5=SRCE/DEST
         BLO  I_INC_nc
         ADDS R1,#0x10 // Carry bit
 I_INC_nc:
-        MOVS R4,#0x80
-        LSLS R4,#8 // -> #0x8000
-        ANDS R2,R4
+        LSRS R2,#15
         BNE  I_INC_e
-        ANDS R4,R0
+        LSRS R4,R0,#15
         CMP  R2,R4
         BEQ  I_INC_e
         ADDS R1,#0x08 // Overflow bit
@@ -479,11 +477,9 @@ I_INCT: LDRH R2,[R5,#0] // R5=SRCE/DEST
         BLO  I_INCT_nc
         ADDS R1,#0x10 // Carry bit
 I_INCT_nc:
-        MOVS R4,#0x80
-        LSLS R4,#8 // -> #0x8000
-        ANDS R2,R4
+        LSRS R2,#15
         BNE  I_INCT_e
-        ANDS R4,R0
+        LSRS R4,R0,#15
         CMP  R2,R4
         BEQ  I_INCT_e
         ADDS R1,#0x08 // Overflow bit
@@ -506,11 +502,9 @@ I_DEC:  LDRH R2,[R5,#0] // R5=SRCE/DEST
         BLO  I_DEC_nc
         ADDS R1,#0x10 // Carry bit
 I_DEC_nc:
-        MOVS R4,#0x80
-        LSLS R4,#8 // -> #0x8000
-        ANDS R2,R4
+        LSRS R2,#15
         BEQ  I_DEC_e
-        ANDS R4,R0
+        LSRS R4,R0,#15
         CMP  R2,R4
         BEQ  I_DEC_e
         ADDS R1,#0x08 // Overflow bit
@@ -534,24 +528,23 @@ I_DECT: LDRH R2,[R5,#0] // R5=SRCE/DEST
         BLO  I_DECT_nc
         ADDS R1,#0x10 // Carry bit
 I_DECT_nc:
-        MOVS R4,#0x80
-        LSLS R4,#8 // -> #0x8000
-        ANDS R2,R4
+        LSRS R2,#15
         BEQ  I_DECT_e
-        ANDS R4,R0
+        LSRS R4,R0,#15
         CMP  R2,R4
         BEQ  I_DECT_e
         ADDS R1,#0x08 // Overflow bit
 I_DECT_e:
         B    OP_COMP_W
 // *********************************************************************************************
-I_BL:   REV16 R3,R3
+I_BL:   MOV  R0,R10
+        REV16 R0,R0
         MOV  R1,R11
         ADDS R1,#22 // R11
         UXTH R1,R1
         MOV  R2,R8
         ADDS R1,R2
-        STRH R3,[R1,#0]
+        STRH R0,[R1,#0]
         SUBS R5,R2 // Normalise
         MOV  R10,R5
         B    start
@@ -864,17 +857,14 @@ I_S:    LDRH R2,[R6,#0] // R6=DEST
 I_S_c:
         ADDS R1,#0x10 // Carry bit
 I_S_nc:
-        MOVS R4,#0x80
-        LSLS R4,#8 // -> #0x8000
-        ANDS R5,R4
-        ANDS R2,R4
+        LSRS R5,#15
+        LSRS R2,#15
         CMP  R2,R5
-        BEQ  I_S_e
-        ANDS R4,R0
+        BEQ  OP_COMP_W
+        LSRS R4,R0,#15
         CMP  R2,R4
-        BEQ  I_S_e
+        BEQ  OP_COMP_W
         ADDS R1,#0x08 // Overflow bit
-I_S_e:
         B    OP_COMP_W
 // *********************************************************************************************
 I_SB:   LDRB R2,[R6,#0] // R6=DEST
@@ -895,16 +885,14 @@ I_SB:   LDRB R2,[R6,#0] // R6=DEST
 I_SB_c:
         ADDS R1,#0x10 // Carry bit
 I_SB_nc:
-        MOVS R4,#0x80
-        ANDS R5,R4
-        ANDS R2,R4
+        LSRS R5,#7
+        LSRS R2,#7
         CMP  R2,R5
-        BEQ  I_SB_e
-        ANDS R4,R0
+        BEQ  OP_COMP_B
+        LSRS R4,R0,#7
         CMP  R2,R4
-        BEQ  I_SB_e
+        BEQ  OP_COMP_B
         ADDS R1,#0x08 // Overflow bit
-I_SB_e:
         B    OP_COMP_B
 // *********************************************************************************************
 I_A:    LDRH R2,[R6,#0] // R6=DEST
@@ -924,17 +912,14 @@ I_A_nc:
         REV16 R3,R3
         STRH R3,[R6,#0]
 
-        MOVS R4,#0x80
-        LSLS R4,#8 // -> #0x8000
-        ANDS R5,R4
-        ANDS R2,R4
+        LSRS R5,#15
+        LSRS R2,#15
         CMP  R2,R5
-        BNE  I_A_e
-        ANDS R4,R0
+        BNE  OP_COMP_W
+        LSRS R4,R0,#15
         CMP  R2,R4
-        BEQ  I_A_e
+        BEQ  OP_COMP_W
         ADDS R1,#0x08 // Overflow bit
-I_A_e:
         B    OP_COMP_W
 // *********************************************************************************************
 I_AB:   LDRB R2,[R6,#0] // R6=DEST
@@ -952,12 +937,11 @@ I_AB:   LDRB R2,[R6,#0] // R6=DEST
 I_AB_nc:
         STRB R0,[R6,#0]
 
-        MOVS R4,#0x80
-        ANDS R5,R4
-        ANDS R2,R4
+        LSRS R5,#7
+        LSRS R2,#7
         CMP  R2,R5
         BNE  OP_COMP_B
-        ANDS R4,R0
+        LSRS R4,R0,#7
         CMP  R2,R4
         BEQ  OP_COMP_B
         ADDS R1,#0x08 // Overflow bit
@@ -993,7 +977,7 @@ I_MOVB: STRB R5,[R6,#0]
         MOVS R4,#0x1A // Get initialised ST
         ANDS R1,R4
 // ***************************************** DEBUG *********************************************
-/*
+
         CMP  R0,#32 // space
         BLO  OP_COMP_B
         CMP  R0,#127 // '~'
@@ -1008,7 +992,7 @@ I_MOVB: STRB R5,[R6,#0]
         STRB R0,[R5,#0]
         ADDS R5,#1
         MOV  R9,R5
-*/
+
 // *********************************************************************************************
 OP_COMP_B:
         ADR  R3,PARITY0
@@ -1254,6 +1238,9 @@ COM_S2a_I:
 // Sticking this in the middle of the code, so we can get back to "start" from anywhere easily
 
 // void run9900 (unsigned char * memory, unsigned short pc, unsigned short wp, unsigned char * buf);
+// R0 =BYTE|INST
+// R1 =INST|BYTE
+// R2 =SPARE
 // R3 =PC+2 (initially)
 // R4 =TEMP (in some cases)
 // R5 =SRCE
