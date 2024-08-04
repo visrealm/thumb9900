@@ -12,7 +12,7 @@ extern "C" int instscnt;
 
 extern "C" int run9900 (unsigned char * memory, unsigned short pc, unsigned short wp, unsigned char * buf);
 
-static unsigned char mem [64 * 1024 + 16]; // TODO: fix +16 issues in ASM
+static unsigned char mem [64 * 1024 + 2]; // TODO: fix +2 issues in ASM
 static unsigned char buf [16 * 1024];
 
 static const unsigned char cputest [] = { // Org = 0x6000, Start = 0x6026

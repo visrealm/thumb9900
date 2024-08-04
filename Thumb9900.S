@@ -102,17 +102,29 @@ FMT_7:  LSRS R1,R0,#8 // BYTE
 FMT_7_c2:
         CMP  R1,#0x80
         BNE  FMT_7_e // if (BYTE == 0x80) // RTWP
-        MOV  R3,R11 // Get address of WP *** TODO: Possible overrun of the 64KB address space
+
+        MOV  R3,R11  // Get address of WP
+        ADDS R3,#26   // R13 - start position for restoring return details
+        ADDS R2,R3,#2 // R14
+        ADDS R4,R3,#4 // R15
+        UXTH R3,R3
+        UXTH R2,R2
+        UXTH R4,R4
         ADD  R3,R8
-        LDRB R1,[R3,#30] // R15 high byte
+        ADD  R2,R8
+        ADD  R4,R8
+
+        LDRB R1,[R4,#0] // R15 high byte
         MOV  R12,R1
-        LDRH R1,[R3,#28]  // R14..
+
+        LDRH R1,[R2,#0] // R14..
         REV16 R1,R1
         MOVS R4,#0xFE
-        SXTB R4,R4
+        SXTB R4,R4 // -> 0xFFFE
         ANDS R1,R4
         MOV  R10,R1
-        LDRH R1,[R3,#26]  // R13..
+
+        LDRH R1,[R3,#0] // R13..
         REV16 R1,R1
         ANDS R1,R4
         MOV  R11,R1
@@ -464,23 +476,32 @@ I_STST: MOV  R0,R12 // Don't need to swap low bytes here
         B    start
 
 // *********************************************************************************************
-I_BLWP: LDRB R0,[R5,#0] // R5=SRCE
+I_BLWP: LDRH R0,[R5,#0] // R5=SRCE
         REV16 R0,R0
         MOVS R2,#0xFE
         SXTB R2,R2 // -> 0xFFFE
         ANDS R0,R2
         MOV  R1,R11 // WP
         MOV  R11,R0
+        ADDS R0,#26   // R13 - start position for storing return details
+        ADDS R3,R0,#2 // R14
+        ADDS R4,R0,#4 // R15
+        UXTH R0,R0
+        UXTH R3,R3
+        UXTH R4,R4
+        ADD  R0,R8
+        ADD  R3,R8
+        ADD  R4,R8
 
         REV16 R1,R1
-        STRH R1,[R0,#26]  // R13 *** TODO: Possible overrun of the 64KB address space
+        STRH R1,[R0,#0]  // R13
 
         MOV  R1,R10 // PC
         REV16 R1,R1
-        STRH R1,[R0,#28]  // R14 *** TODO: Possible overrun of the 64KB address space
+        STRH R1,[R3,#0]  // R14
 
         MOV  R1,R12 // Don't need to swap low bytes here
-        STRH R1,[R0,#30] // R15 High Byte = ST *** TODO: Possible overrun of the 64KB address space
+        STRH R1,[R4,#0] // R15 High Byte = ST
 
         LDRH R0,[R5,#2] // R5=SRCE *** TODO: Possible overrun of the 64KB address space
         REV16 R0,R0
