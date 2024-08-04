@@ -237,6 +237,8 @@ static const unsigned char cputest [] = { // Org = 0x6000, Start = 0x6026
 0x00, 0x00, 0x04, 0x5B, 0x04, 0x9C, 0x00, 0x00, 0x04, 0x5B
 };
 
+static volatile int not_ready = 1;
+
 void setup () {
     int i = 252;
     set_sys_clock_khz (i * 1000, true);
@@ -246,6 +248,7 @@ void setup () {
     SERIALOUT.setTX(S_TX);
     SERIALOUT.begin (115200);
     SERIALOUT.printf ("Starting\n");
+    not_ready = 0;
 }
 
 extern "C" void IN_RAM(debug_print) (int r0, int r1, int r2, int r3) {
@@ -363,6 +366,8 @@ void setup1 () {
     mem [0x43] = 0xFF;
 
     memcpy (&(mem [0x6000]), cputest, sizeof (cputest));
+    
+    while (not_ready) {}
 }
 
 static unsigned char * vregs = &(mem [0x6000]);
@@ -433,11 +438,13 @@ void IN_RAM(loop1) () {
     i = run9900 (mem, 0x6026, 0x8300, buf);
 
 #if DEBUGOUT
-    static int once = 1;
-    if (once)
-        once = 0;
-    else
+    static int once = 0;
+
+    if (once == 0) {
+        once = 1;
+    } else {
         return;
+    }
 
     SERIALOUT.printf ("Exit = >%04X\n", i - 2);
 
