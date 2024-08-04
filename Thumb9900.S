@@ -44,13 +44,10 @@ res9900: // Restore simulator state
 I_SRA:  LSLS R5,R0,#20
         LSRS R5,#27 // Get Register x 2
         ADD  R5,R11 // Add WP
-        UXTH R5,R5
-        ADD  R5,R8
         
         LSRS R2,R0,#12 // Get Shift Count
         BNE  I_SRA_nr0 // Result not 0 - got it, else
         MOV  R2,R11
-        ADD  R2,R8
         LDRB R2,[R2,#1] // Get R0 low byte
         MOVS R4,#0x0F  // Mask lower nibble
         ANDS R2,R4
@@ -77,13 +74,10 @@ I_SRA_st:
 I_SRL:  LSLS R5,R0,#20
         LSRS R5,#27 // Get Register x 2
         ADD  R5,R11 // Add WP
-        UXTH R5,R5
-        ADD  R5,R8
 
         LSRS R2,R0,#12 // Get Shift Count
         BNE  I_SRL_nr0 // Result not 0 - got it, else
         MOV  R2,R11
-        ADD  R2,R8
         LDRB R2,[R2,#1] // Get R0 low byte
         MOVS R4,#0x0F  // Mask lower nibble
         ANDS R2,R4
@@ -110,8 +104,6 @@ I_SRL_st:
 I_SLA:  LSLS R5,R0,#20
         LSRS R5,#27 // Get Register x 2
         ADD  R5,R11 // Add WP
-        UXTH R5,R5
-        ADD  R5,R8
 
         MOVS R4,#0x06 // Get initialised ST
         ANDS R1,R4
@@ -119,7 +111,6 @@ I_SLA:  LSLS R5,R0,#20
         LSRS R2,R0,#12 // Get Shift Count
         BNE  I_SLA_nr0 // Result not 0 - got it, else
         MOV  R2,R11
-        ADD  R2,R8
         LDRB R2,[R2,#1] // Get R0 low byte
         MOVS R4,#0x0F  // Mask lower nibble
         ANDS R2,R4
@@ -143,20 +134,20 @@ I_SLA_nr0:
         // Set Overflow if sign changes
         ADR  R4,I_SLA_M
         LSLS R6,R2,#2
-        LDR  R3,[R4,R6] // Get correct mask
+        LDR  R6,[R4,R6] // Get correct mask
 
         LSRS R4,R0,#16 // Top bit into Carry
         BCS  I_SLA_neg // Result was not zero
 
         // Positive number test
-        TST  R0,R3
+        TST  R0,R6
         BNE  I_SLA_ov // Result was not zero
         B    I_SLA_nov
 I_SLA_neg:
         // Negative number test
         MOV  R4,R0
-        ANDS R4,R3
-        CMP  R4,R3
+        ANDS R4,R6
+        CMP  R4,R6
         BEQ  I_SLA_nov // Sign bit never changes
 I_SLA_ov:
         ADDS R1,#0x08 // Overflow Bit
@@ -178,13 +169,10 @@ I_SLA_M: .WORD 0x0000, 0x4000, 0x6000, 0x7000, 0x7800, 0x7C00, 0x7E00, 0x7F00
 I_SRC:  LSLS R5,R0,#20
         LSRS R5,#27 // Get Register x 2
         ADD  R5,R11 // Add WP
-        UXTH R5,R5
-        ADD  R5,R8
 
         LSRS R2,R0,#12 // Get Shift Count
         BNE  I_SRC_nr0 // Result not 0 - got it, else
         MOV  R2,R11
-        ADD  R2,R8
         LDRB R2,[R2,#1] // Get R0 low byte
         MOVS R4,#0x0F  // Mask lower nibble
         ANDS R2,R4
@@ -208,48 +196,39 @@ I_SRC_st:
         B    OP_COMP_W
 
 // *********************************************************************************************
-I_LI:   ADDS R2,R3,#2
-        UXTH R2,R2
-        MOV  R10,R2
-        ADD  R3,R8
-        LDRH R0,[R3,#0]
+I_LI:   MOV  R2,R8
+        LDRH R0,[R2,R3]
+        ADDS R3,#2
+        UXTH R3,R3
         STRH R0,[R6,#0]
         REV16 R0,R0
         MOVS R4,#0x1E // Get initialised ST
         ANDS R1,R4
         B    OP_COMP_W
 // *********************************************************************************************
-I_AI:   ADDS R2,R3,#2
-        UXTH R2,R2
-        MOV  R10,R2
-        ADD  R3,R8
-        LDRH R5,[R3,#0]
-        REV16 R5,R5
+I_AI:   MOV  R2,R8
+        LDRH R5,[R2,R3]
+        ADDS R3,#2
+        UXTH R3,R3
         B    I_A
 // *********************************************************************************************
-I_RTWP: MOV  R3,R11  // Get address of WP
-        ADDS R3,#26   // R13 - start position for restoring return details
-        ADDS R2,R3,#2 // R14
-        ADDS R4,R3,#4 // R15
-        UXTH R3,R3
-        UXTH R2,R2
-        UXTH R4,R4
-        ADD  R3,R8
-        ADD  R2,R8
-        ADD  R4,R8
+I_RTWP: MOV  R5,R11  // Get address of WP
+        ADDS R5,#26   // R13 - start position for restoring return details
+        ADDS R2,R5,#2 // R14
+        ADDS R4,R5,#4 // R15
 
         LDRB R1,[R4,#0] // R15 high byte
 
-        LDRH R0,[R2,#0] // R14..
-        REV16 R0,R0
-        LSRS R0,#1
-        LSLS R0,#1 // R0 &= 0xFFFE
-        MOV  R10,R0
+        LDRH R3,[R2,#0] // R14..
+        REV16 R3,R3
+        LSRS R3,#1
+        LSLS R3,#1 // R0 &= 0xFFFE
 
-        LDRH R0,[R3,#0] // R13..
+        LDRH R0,[R5,#0] // R13..
         REV16 R0,R0
         LSRS R0,#1
         LSLS R0,#1 // R0 &= 0xFFFE
+        ADD  R0,R8
         MOV  R11,R0
         B    start
 // *********************************************************************************************
@@ -258,40 +237,36 @@ I_RTWP: MOV  R3,R11  // Get address of WP
 //ooo.WWWW00000011
 I_LIMI: ADDS R3,#2    // Skip LIMI's 2nd WORD
         UXTH R3,R3
-        MOV  R10,R3
         B    start
 // *********************************************************************************************
-I_ANDI: ADDS R2,R3,#2
-        UXTH R2,R2
-        MOV  R10,R2
-        ADD  R3,R8
-        LDRH R0,[R3,#0]
-        LDRH R3,[R6,#0] // R6=DEST
-        ANDS R0,R3
+I_ANDI: MOV  R2,R8
+        LDRH R0,[R2,R3]
+        ADDS R3,#2
+        UXTH R3,R3
+        LDRH R5,[R6,#0] // R6=DEST
+        ANDS R0,R5
         STRH R0,[R6,#0] // R6=DEST
         REV16 R0,R0
         MOVS R4,#0x1E // Get initialised ST
         ANDS R1,R4
         B    OP_COMP_W
 // *********************************************************************************************
-I_ORI:  ADDS R2,R3,#2
-        UXTH R2,R2
-        MOV  R10,R2
-        ADD  R3,R8
-        LDRH R0,[R3,#0]
-        LDRH R3,[R6,#0] // R6=DEST
-        ORRS R0,R3
+I_ORI:  MOV  R2,R8
+        LDRH R0,[R2,R3]
+        ADDS R3,#2
+        UXTH R3,R3
+        LDRH R5,[R6,#0] // R6=DEST
+        ORRS R0,R5
         STRH R0,[R6,#0] // R6=DEST
         REV16 R0,R0
         MOVS R4,#0x1E // Get initialised ST
         ANDS R1,R4
         B    OP_COMP_W
 // *********************************************************************************************
-I_CI:   ADDS R2,R3,#2
-        UXTH R2,R2
-        MOV  R10,R2
-        ADD  R3,R8
-        LDRH R5,[R3,#0]
+I_CI:   MOV  R2,R8
+        LDRH R5,[R2,R3]
+        ADDS R3,#2
+        UXTH R3,R3
         REV16 R5,R5
 
         LDRH R2,[R6,#0] // R6=DEST
@@ -316,19 +291,21 @@ I_CI_a:
 I_CI_e:
         B    start
 // *********************************************************************************************
-I_LWPI: ADDS R2,R3,#2
-        UXTH R2,R2
-        MOV  R10,R2
-        ADD  R3,R8
-        LDRH R0,[R3,#0]
+I_LWPI: MOV  R2,R8
+        LDRH R0,[R2,R3]
+        ADDS R3,#2
+        UXTH R3,R3
         REV16 R0,R0
         LSRS R0,#1
         LSLS R0,#1 // R0 &= 0xFFFE
+        ADD  R0,R8
         MOV  R11,R0
         B    start
 
 // *********************************************************************************************
 I_STWP: MOV  R0,R11
+        MOV  R2,R8
+        SUBS R0,R2
         REV16 R0,R0
         STRH R0,[R6,#0]
         B    start
@@ -341,41 +318,34 @@ I_BLWP: LDRH R0,[R5,#0] // R5=SRCE
         REV16 R0,R0
         LSRS R0,#1
         LSLS R0,#1 // R0 &= 0xFFFE
+        MOV  R7,R8
+        ADDS R0,R7
         MOV  R2,R11 // WP
+        SUBS R2,R7
         MOV  R11,R0
         ADDS R0,#26   // R13 - start position for storing return details
-        ADDS R3,R0,#2 // R14
+        ADDS R6,R0,#2 // R14
         ADDS R4,R0,#4 // R15
-        UXTH R0,R0
-        UXTH R3,R3
-        UXTH R4,R4
-        ADD  R0,R8
-        ADD  R3,R8
-        ADD  R4,R8
 
         REV16 R2,R2
         STRH R2,[R0,#0] // R13
 
-        MOV  R2,R10 // PC
-        REV16 R2,R2
-        STRH R2,[R3,#0] // R14
+        REV16 R3,R3
+        STRH R3,[R6,#0] // R14
 
         STRH R1,[R4,#0] // R15 High Byte = ST
 
-        LDRH R0,[R5,#2] // R5=SRCE *** TODO: Possible overrun of the 64KB address space
-        REV16 R0,R0
-        LSRS R0,#1
-        LSLS R0,#1 // R0 &= 0xFFFE
-        MOV  R10,R0 // PC
+        LDRH R3,[R5,#2] // R5=SRCE *** TODO: Possible overrun of the 64KB address space
+        REV16 R3,R3
+        LSRS R3,#1
+        LSLS R3,#1 // R3 &= 0xFFFE
         B    start
 // *********************************************************************************************
 I_B:    MOV  R0,R8
-        SUBS R5,R0 // Normalise
-        MOV  R10,R5
+        SUBS R3,R5,R0 // Normalise
         B    start
 // *********************************************************************************************
 I_X:    LDRH R0,[R5,#0] // R5=SRCE
-        MOV  R3,R10 // R3 has lost its PC+2 value by now
         B    startX
 // *********************************************************************************************
 I_CLR:  MOVS R0,#0
@@ -414,11 +384,11 @@ I_INV:  LDRH R0,[R5,#0] // R5=SRCE/DEST
 I_INC:  LDRH R2,[R5,#0] // R5=SRCE/DEST
         REV16 R2,R2
 
-        ADDS R3,R2,#1
+        ADDS R4,R2,#1
 
-        UXTH R0,R3 // Keep a clean copy
-        REV16 R3,R3
-        STRH R3,[R5,#0]
+        UXTH R0,R4 // Keep a clean copy
+        REV16 R4,R4
+        STRH R4,[R5,#0]
 
         MOVS R4,#0x06 // Get initialised ST
         ANDS R1,R4
@@ -439,11 +409,11 @@ I_INC_e:
 I_INCT: LDRH R2,[R5,#0] // R5=SRCE/DEST
         REV16 R2,R2
 
-        ADDS R3,R2,#2
+        ADDS R4,R2,#2
 
-        UXTH R0,R3 // Keep a clean copy
-        REV16 R3,R3
-        STRH R3,[R5,#0]
+        UXTH R0,R4 // Keep a clean copy
+        REV16 R4,R4
+        STRH R4,[R5,#0]
 
         MOVS R4,#0x06 // Get initialised ST
         ANDS R1,R4
@@ -463,11 +433,11 @@ I_INCT_e:
 // *********************************************************************************************
 I_DEC:  LDRH R2,[R5,#0] // R5=SRCE/DEST
         REV16 R2,R2
-        SUBS R3,R2,#1
+        SUBS R4,R2,#1
 
-        UXTH R0,R3 // Keep a clean copy
-        REV16 R3,R3
-        STRH R3,[R5,#0]
+        UXTH R0,R4 // Keep a clean copy
+        REV16 R4,R4
+        STRH R4,[R5,#0]
 
         MOVS R4,#0x06 // Get initialised ST
         ANDS R1,R4
@@ -488,11 +458,11 @@ I_DEC_e:
 I_DECT: LDRH R2,[R5,#0] // R5=SRCE/DEST
         REV16 R2,R2
 
-        SUBS R3,R2,#2
+        SUBS R4,R2,#2
 
-        UXTH R0,R3 // Keep a copy
-        REV16 R3,R3
-        STRH R3,[R5,#0]
+        UXTH R0,R4 // Keep a copy
+        REV16 R4,R4
+        STRH R4,[R5,#0]
 
         MOVS R4,#0x06 // Get initialised ST
         ANDS R1,R4
@@ -510,16 +480,11 @@ I_DECT_nc:
 I_DECT_e:
         B    OP_COMP_W
 // *********************************************************************************************
-I_BL:   MOV  R0,R10
-        REV16 R0,R0
-        MOV  R2,R11
-        ADDS R2,#22 // R11
-        UXTH R2,R2
-        MOV  R3,R8
-        ADDS R2,R3
-        STRH R0,[R2,#0]
-        SUBS R5,R3 // Normalise
-        MOV  R10,R5
+I_BL:   MOV  R2,R11
+        REV16 R3,R3
+        STRH R3,[R2,#22] // R11
+        MOV  R4,R8
+        SUBS R3,R5,R4 // Normalise
         B    start
 // *********************************************************************************************
 I_SWPB: LDRH R0,[R5,#0] // R5=SRCE
@@ -553,31 +518,6 @@ I_ABS_no_ov:
 I_ABS_e:
         B    OP_COMP_W
 // *********************************************************************************************
-I_JMP:  MOVS R2,#0xFE
-        SXTB R2,R2
-        CMP  R0,R2   // Does this jump to itself?
-        BEQ  I_IDLE  // Then quit the emulation
-
-        ADD  R0,R10
-        UXTH R0,R0 // Discard any extra
-        MOV  R10,R0
-        B    start
-// *********************************************************************************************
-I_IDLE: ADR  R0,RETCODE
-        MOV  R2,R10 // PC
-        STR  R2,[R0,#0]
-
-        POP  {R0-R7}
-        MOV  R8,R0
-        MOV  R9,R1
-        MOV  R10,R2
-        MOV  R11,R3
-        ADR  R0,RETCODE
-        LDR  R0,[R0,#0]
-        POP  {PC}
-.align 4
-RETCODE: .WORD 0
-// *********************************************************************************************
 I_SBO: // SBO - Not Implemented
 I_SBZ: // SBZ - Not Implemented
         B    start
@@ -588,6 +528,7 @@ I_TB:  // TB  - Not Implemented
 // *********************************************************************************************
 I_C:    LDRH R2,[R6,#0] // R6=DEST
         REV16 R2,R2
+        REV16 R5,R5
 
         MOVS R4,#0x1E // Get initialised ST
         ANDS R1,R4
@@ -613,9 +554,9 @@ I_CB:   LDRB R2,[R6,#0] // R6=DEST
         MOVS R4,#0x1A // Get initialised ST
         ANDS R1,R4
 
-        ADR  R3,PARITY
-        LDRB R3,[R3,R5]
-        ORRS R1,R3
+        ADR  R4,PARITY
+        LDRB R4,[R4,R5]
+        ORRS R1,R4
 
         CMP  R5,R2
         BNE  I_CB_l
@@ -663,7 +604,6 @@ I_XOR:  EORS R4,R5 // R4=TEMP, R5=*SRCE
         B    OP_COMP_W
 // *********************************************************************************************
 I_SZC:  LDRH R0,[R6,#0] // R6=DEST
-        REV16 R5,R5
         BICS R0, R5
         STRH R0,[R6,#0]
         REV16 R0,R0
@@ -680,12 +620,13 @@ I_SZCB: LDRB R0,[R6,#0] // R6=DEST
 // *********************************************************************************************
 I_S:    LDRH R2,[R6,#0] // R6=DEST
         REV16 R2,R2
+        REV16 R5,R5
 
-        SUBS R3,R2,R5
+        SUBS R4,R2,R5
 
-        UXTH R0,R3 // Keep a copy
-        REV16 R3,R3
-        STRH R3,[R6,#0]
+        UXTH R0,R4 // Keep a copy
+        REV16 R4,R4
+        STRH R4,[R6,#0]
 
         MOVS R4,#0x06 // Get initialised ST
         ANDS R1,R4
@@ -709,10 +650,10 @@ I_S_nc:
 // *********************************************************************************************
 I_SB:   LDRB R2,[R6,#0] // R6=DEST
 
-        SUBS R3,R2,R5
+        SUBS R4,R2,R5
 
-        UXTB R0,R3 // Keep a copy
-        STRB R3,[R6,#0]
+        UXTB R0,R4 // Keep a copy
+        STRB R4,[R6,#0]
 
         MOVS R4,#0x02 // Get initialised ST
         ANDS R1,R4
@@ -736,19 +677,20 @@ I_SB_nc:
 // *********************************************************************************************
 I_A:    LDRH R2,[R6,#0] // R6=DEST
         REV16 R2,R2
+        REV16 R5,R5
 
-        ADDS R3,R2,R5
+        ADDS R7,R2,R5
 
         MOVS R4,#0x06 // Get initialised ST
         ANDS R1,R4
 
-        LSRS R4,R3,#16
+        LSRS R4,R7,#16
         BEQ  I_A_nc
         ADDS R1,#0x10 // Carry bit
 I_A_nc:
-        UXTH R0,R3 // Keep a copy
-        REV16 R3,R3
-        STRH R3,[R6,#0]
+        UXTH R0,R7 // Keep a copy
+        REV16 R7,R7
+        STRH R7,[R6,#0]
 
         LSRS R5,#15
         LSRS R2,#15
@@ -784,8 +726,7 @@ I_AB_nc:
         ADDS R1,#0x08 // Overflow bit
         B    OP_COMP_B
 // *********************************************************************************************
-I_MOV:  REV16 R5,R5
-        STRH R5,[R6,#0]
+I_MOV:  STRH R5,[R6,#0]
         REV16 R0,R5
         MOVS R4,#0x1E // Get initialised ST
         ANDS R1,R4
@@ -805,7 +746,7 @@ OP_COMP_W_a:
         B    start
 // *********************************************************************************************
 I_MOVB: STRB R5,[R6,#0]
-        MOV  R0,R5
+        MOVS R0,R5
         MOVS R4,#0x1A // Get initialised ST
         ANDS R1,R4
 // ***************************************** DEBUG *********************************************
@@ -814,11 +755,11 @@ I_MOVB: STRB R5,[R6,#0]
         BLO  OP_COMP_B
         CMP  R0,#127 // '~'
         BHI  OP_COMP_B
-        MOV  R3,R8
-        SUBS R6,R3 // Normalise
-        MOVS R3,#0x8C
-        LSLS R3,#8 // -> 0x8C00
-        CMP  R6,R3
+        MOV  R4,R8
+        SUBS R6,R4 // Normalise
+        MOVS R4,#0x8C
+        LSLS R4,#8 // -> 0x8C00
+        CMP  R6,R4
         BNE  OP_COMP_B
         MOV  R5,R9
         STRB R0,[R5,#0]
@@ -827,13 +768,12 @@ I_MOVB: STRB R5,[R6,#0]
 
 // *********************************************************************************************
 OP_COMP_B:
-        ADR  R3,PARITY0
-        LDRB R3,[R3,R0]
-        ORRS R1,R3
+        ADR  R4,PARITY0
+        LDRB R4,[R4,R0]
+        ORRS R1,R4
         B    start
 // *********************************************************************************************
 I_SOC:  LDRH R0,[R6,#0]
-        REV16 R5,R5
         ORRS R0,R5
         STRH R0,[R6,#0]
         REV16 R0,R0
@@ -876,13 +816,13 @@ I_DIV:  CMP   R5,R4
         NOP
         NOP
         NOP
-        LDR  R3,[R2, #0x74] // SIO_DIV_REMAINDER_OFFSET
+        LDR  R5,[R2, #0x74] // SIO_DIV_REMAINDER_OFFSET
         LDR  R4,[R2, #0x70] // SIO_DIV_QUOTIENT_OFFSET
 
         REV16 R4,R4
         STRH R4,[R6,#0]
-        REV16 R3,R3
-        STRH R3,[R6,#2] // *** TODO: Possible overrun of the 64KB address space
+        REV16 R5,R5
+        STRH R5,[R6,#2] // *** TODO: Possible overrun of the 64KB address space
         B    start
 I_DIV_ov:
         MOVS R4,#0x08 // OV
@@ -937,57 +877,50 @@ PARITY0: // Compare to 0 status result
 sdecode2a: // calculate S & SRCE
         LSLS R5,R6,#28
         LSRS R5,#27 // Got S << 1
-        LSRS R2,R0,#10
-        MOVS R4,#0x0C
-        ANDS R2,R4 // Got TS * 4
+        LSRS R2,R0,#12
+        LSLS R2,#2 // Got TS * 4, but with 2 extra random hi bits
         ADR  R4,COM_S2a
         LDR  R4,[R4,R2]
         MOV  PC,R4
 .align 4
-COM_S2a: .WORD COM_S2a_R, COM_S2a_I, COM_S2a_L, COM_S2a_II
+COM_S2a: .WORD COM_S2a_R, COM_S2a_I, COM_S2a_L, COM_S2a_II // random bits 00
+         .WORD COM_S2a_R, COM_S2a_I, COM_S2a_L, COM_S2a_II // random bits 01
+         .WORD COM_S2a_R, COM_S2a_I, COM_S2a_L, COM_S2a_II // random bits 10
+         .WORD COM_S2a_R, COM_S2a_I, COM_S2a_L, COM_S2a_II // random bits 11
 COM_S2a_R:
         ADD  R5,R11 // SRCE = WP + S;
-        UXTH R5,R5
-        ADD  R5,R8
         MOV  PC,R7
 COM_S2a_L:
-        ADDS R2,R3,#2
-        UXTH R2,R2
-        MOV  R10,R2
-        ADD  R3,R8
-        LDRH R3,[R3,#0] // SRCE = (memory [PC + 0] << 8) | memory [PC + 1];
-        REV16 R3,R3
+        MOV  R2,R8
+        LDRH R2,[R2,R3] // SRCE = (memory [PC + 0] << 8) | memory [PC + 1];
+        ADDS R3,#2
+        UXTH R3,R3
+        REV16 R2,R2
         CMP  R5,#0  // if (S) // Not R0?
         BEQ  COM_S2a_F
         ADD  R5,R11
-        UXTH R5,R5
-        ADD  R5,R8
-        LDRH R2,[R5,#0] // SRCE += (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R2,R2
-        ADD  R3,R2
-        UXTH R3,R3
+        LDRH R4,[R5,#0] // SRCE += (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
+        REV16 R4,R4
+        ADD  R2,R4
+        UXTH R2,R2
 COM_S2a_F:
-        LSRS R5,R3,#1
+        LSRS R5,R2,#1
         LSLS R5,#1 // SRCE &= 0xFFFE
         ADD  R5,R8
         MOV  PC,R7
 COM_S2a_II:
         ADD  R5,R11
-        UXTH R5,R5
-        ADD  R5,R8
-        LDRH R3,[R5,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R3,R3
-        ADDS R2,R3,#2
+        LDRH R2,[R5,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
         REV16 R2,R2
-        STRH R2,[R5,#0]
-        LSRS R5,R3,#1
+        ADDS R4,R2,#2
+        REV16 R4,R4
+        STRH R4,[R5,#0]
+        LSRS R5,R2,#1
         LSLS R5,#1 // SRCE &= 0xFFFE
         ADD  R5,R8
         MOV  PC,R7
 COM_S2a_I:
         ADD  R5,R11
-        UXTH R5,R5
-        ADD  R5,R8
         LDRH R5,[R5,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
         REV16 R5,R5
         LSRS R5,#1
@@ -1005,63 +938,56 @@ COM_S2a_I:
 sdecode2b: // calculate S & SRCE
         LSLS R5,R6,#28
         LSRS R5,#27 // Got S << 1
-        LSRS R2,R0,#10
-        MOVS R4,#0x0C
-        ANDS R2,R4 // Got TS * 4
+        LSRS R2,R0,#12
+        LSLS R2,#2 // Got TS * 4, but with 2 extra random hi bits
         ADR  R4,COM_S2b
         LDR  R4,[R4,R2]
         MOV  PC,R4
 .align 4
-COM_S2b: .WORD COM_S2b_R, COM_S2b_I, COM_S2b_L, COM_S2b_II
+COM_S2b: .WORD COM_S2b_R, COM_S2b_I, COM_S2b_L, COM_S2b_II // random bits 00
+         .WORD COM_S2b_R, COM_S2b_I, COM_S2b_L, COM_S2b_II // random bits 01
+         .WORD COM_S2b_R, COM_S2b_I, COM_S2b_L, COM_S2b_II // random bits 10
+         .WORD COM_S2b_R, COM_S2b_I, COM_S2b_L, COM_S2b_II // random bits 11
 COM_S2b_R:
         ADD  R5,R11 // SRCE = WP + S;
-        UXTH R5,R5
         B    COM_S2b_F2
 COM_S2b_L:
-        ADDS R2,R3,#2
-        UXTH R2,R2
-        MOV  R10,R2
-        ADD  R3,R8
-        LDRH R3,[R3,#0] // SRCE = (memory [PC + 0] << 8) | memory [PC + 1];
-        REV16 R3,R3
+        MOVS  R2,R3
+        ADDS R3,#2
+        UXTH R3,R3
+        ADD  R2,R8
+        LDRH R2,[R2,#0] // SRCE = (memory [PC + 0] << 8) | memory [PC + 1];
+        REV16 R2,R2
         CMP  R5,#0  // if (S) // Not R0?
         BEQ  COM_S2b_F
         ADD  R5,R11
-        UXTH R5,R5
-        ADD  R5,R8
-        LDRH R2,[R5,#0] // SRCE += (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R2,R2
-        ADD  R3,R2
-        UXTH R3,R3
+        LDRH R4,[R5,#0] // SRCE += (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
+        REV16 R4,R4
+        ADD  R2,R4
+        UXTH R2,R2
         B    COM_S2b_F
 COM_S2b_II:
         ADD  R5,R11
-        UXTH R5,R5
-        ADD  R5,R8
-        LDRH R3,[R5,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R3,R3
-        ADDS R2,R3,#2
+        LDRH R2,[R5,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
         REV16 R2,R2
-        STRH R2,[R5,#0]
+        ADDS R4,R2,#2
+        REV16 R4,R4
+        STRH R4,[R5,#0]
         B    COM_S2b_F
 COM_S2b_I:
         ADD  R5,R11
-        UXTH R5,R5
-        ADD  R5,R8
-        LDRH R3,[R5,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R3,R3
+        LDRH R2,[R5,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
+        REV16 R2,R2
 COM_S2b_F:
-        LSRS R5,R3,#1
+        LSRS R5,R2,#1
         LSLS R5,#1 // SRCE &= 0xFFFE
-COM_S2b_F2:
         ADD  R5,R8
+COM_S2b_F2:
 // *********************************************************************************************
         LSLS R6,#22
         LSRS R6,#28
         LSLS R6,#1  // Got D << 1
         ADD  R6,R11 // DEST = WP + D;
-        UXTH R6,R6
-        ADD  R6,R8
         LDRH R5,[R5,#0]
         REV16 R5,R5 // SRCE = (memory [SRCE + 0] << 8) | memory [SRCE + 1];
         LDRH R4,[R6,#0]
@@ -1074,16 +1000,13 @@ COM_S2b_F2:
 FMT_8:  LSLS R6,R0,#20
         LSRS R6,#27
         ADD  R6,R11 // DEST = WP + ((BYTE & 0x0F) << 1);
-        UXTH R6,R6
-        ADD  R6,R8
         MOV  PC,R7
 // *********************************************************************************************
 //R0 (LE)
 //89ABCDEF01234567 (Format 2)
 //dddddddd0001oooo
-OP_1:   LSRS R0,#8
-        SXTB R0,R0 // R0 now has a signed offset
-        LSLS R0,#1 // Word offset
+OP_1:   SXTH R0,R0 // R0 now has a signed offset
+        ASRS R0,#7 // Word offset
         MOV  PC,R7
 // *********************************************************************************************
 //R0 (LE)
@@ -1093,102 +1016,82 @@ OP_3LO: LSRS R2,R0,#13 // if ((BYTE & 0x30) == 0x20) Ts==2 (already checked Ts h
         BCS  start // Carry Set - then it's not == 0x20
         ADDS R3,#2 // PC += 2; // Skip CRU's 2nd word address
         UXTH R3,R3
-        MOV  R10,R3
         B    start
 // *********************************************************************************************
-I_JLT:  MOVS R2,#0x60 // AG|EQ
-        TST  R2,R1
+I_JMP:  MOVS R2,#0xFE
+        SXTB R2,R2
+        CMP  R0,R2   // Does this jump to itself?
+        BNE  dojump  // Else quit the emulation
+// *********************************************************************************************
+I_IDLE: ADR  R0,RETCODE
+        STR  R3,[R0,#0] // PC
+
+        POP  {R0-R7}
+        MOV  R8,R0
+        MOV  R9,R1
+        MOV  R10,R2
+        MOV  R11,R3
+        ADR  R0,RETCODE
+        LDR  R0,[R0,#0]
+        POP  {PC}
+.align 4
+RETCODE: .WORD 0
+// *********************************************************************************************
+I_JLT:  MOVS R4,#0x60 // AG|EQ
+        TST  R4,R1
         BNE  start  // At least one of them was not zero
-        ADD  R0,R10
-        UXTH R0,R0 // Discard any extra
-        MOV  R10,R0
-        B    start
+        B    dojump
 // *********************************************************************************************
-I_JLE:  LSRS R3,R1,#6 // EQ -> Carry
-        BCS  I_JLE_j
-        LSRS R3,R1,#8 // LG -> Carry
+I_JLE:  LSRS R4,R1,#6 // EQ -> Carry
+        BCS  dojump
+        LSRS R4,R1,#8 // LG -> Carry
         BCS  start
-I_JLE_j:
-        ADD  R0,R10
-        UXTH R0,R0 // Discard any extra
-        MOV  R10,R0
-        B    start
+        B    dojump
 // *********************************************************************************************
-I_JEQ:  LSRS R3,R1,#6 // EQ -> Carry
+I_JEQ:  LSRS R4,R1,#6 // EQ -> Carry
         BCC  start
-        ADD  R0,R10
-        UXTH R0,R0 // Discard any extra
-        MOV  R10,R0
-        B    start
+        B    dojump
 // *********************************************************************************************
-I_JHE:  LSRS R3,R1,#6 // EQ -> Carry
-        BCS  I_JHE_j
-        LSRS R3,R1,#8 // LG -> Carry
+I_JHE:  LSRS R4,R1,#6 // EQ -> Carry
+        BCS  dojump
+        LSRS R4,R1,#8 // LG -> Carry
         BCC  start
-I_JHE_j:
-        ADD  R0,R10
-        UXTH R0,R0 // Discard any extra
-        MOV  R10,R0
-        B    start
+        B    dojump
 // *********************************************************************************************
-I_JGT:  LSRS R3,R1,#7 // AG -> Carry
+I_JGT:  LSRS R4,R1,#7 // AG -> Carry
         BCC  start
-        ADD  R0,R10
-        UXTH R0,R0 // Discard any extra
-        MOV  R10,R0
-        B    start
+        B    dojump
 // *********************************************************************************************
-I_JNE:  LSRS R3,R1,#6 // EQ -> Carry
+I_JNE:  LSRS R4,R1,#6 // EQ -> Carry
         BCS  start
-        ADD  R0,R10
-        UXTH R0,R0 // Discard any extra
-        MOV  R10,R0
-        B    start
+        B    dojump
 // *********************************************************************************************
-I_JNC:  LSRS R3,R1,#5 // C -> Carry
+I_JNC:  LSRS R4,R1,#5 // C -> Carry
         BCS  start
-        ADD  R0,R10
-        UXTH R0,R0 // Discard any extra
-        MOV  R10,R0
-        B    start
+        B    dojump
 // *********************************************************************************************
-I_JOC:  LSRS R3,R1,#5 // C -> Carry
+I_JOC:  LSRS R4,R1,#5 // C -> Carry
         BCC  start
-        ADD  R0,R10
-        UXTH R0,R0 // Discard any extra
-        MOV  R10,R0
-        B    start
+        B    dojump
 // *********************************************************************************************
-I_JNO:  LSRS R3,R1,#4 // O -> Carry
+I_JNO:  LSRS R4,R1,#4 // O -> Carry
         BCS  start
-        ADD  R0,R10
-        UXTH R0,R0 // Discard any extra
-        MOV  R10,R0
-        B    start
+        B    dojump
 // *********************************************************************************************
-I_JL:   MOVS R2,#0xA0 // LG|EQ
-        TST  R2,R1
+I_JL:   MOVS R4,#0xA0 // LG|EQ
+        TST  R4,R1
         BNE  start
-        ADD  R0,R10
-        UXTH R0,R0 // Discard any extra
-        MOV  R10,R0
-        B    start
+        B    dojump
 // *********************************************************************************************
-I_JH:   LSRS R3,R1,#6 // EQ -> Carry
+I_JH:   LSRS R4,R1,#6 // EQ -> Carry
         BCS  start
-        LSRS R3,R1,#8 // LG -> Carry
+        LSRS R4,R1,#8 // LG -> Carry
         BCC  start
-        ADD  R0,R10
-        UXTH R0,R0 // Discard any extra
-        MOV  R10,R0
-        B    start
+        B    dojump
 // *********************************************************************************************
-I_JOP:  LSRS R3,R1,#3 // P -> Carry
+I_JOP:  LSRS R4,R1,#3 // P -> Carry
         BCC  start
-        ADD  R0,R10
-        UXTH R0,R0 // Discard any extra
-        MOV  R10,R0
-        B    start
+        B    dojump
 // *********************************************************************************************
 
 // Sticking this in the middle of the code, so we can get back to "start" from anywhere easily
@@ -1197,14 +1100,14 @@ I_JOP:  LSRS R3,R1,#3 // P -> Carry
 // R0 =BYTE|INST
 // R1 =ST
 // R2 =SPARE
-// R3 =PC+2 (initially)
+// R3 =PC
 // R4 =TEMP (in some cases)
 // R5 =SRCE
 // R6 =DEST (initially INST|BYTE)
 // R7 =2nd JUMP location
 // R8 =memory
 // R9 =buf
-// R10=PC
+// R10=SPARE
 // R11=WP
 
 // *********************************************************************************************
@@ -1220,21 +1123,24 @@ run9900:
 
         MOV  R8,R0  // memory
         MOV  R9,R3  // buf
-        MOV  R10,R1 // PC
+        MOVS R3,R1  // PC
+        ADDS R2,R0
         MOV  R11,R2 // WP
         MOVS R1,#0  // ST=0
+        B    start
+// *********************************************************************************************
+dojump: ADDS R3,R0
+        UXTH R3,R3 // Discard any extra
 // *********************************************************************************************
 start:  ADR  R0,instscnt
         LDR  R2,[R0,#0]
         ADDS R2,#1
         STR  R2,[R0,#0]
 
-        MOV  R0,R10
-        ADDS R3,R0,2 // Using R3 to optimise immediate instructions that also INCT PC
+        MOV  R0,R8
+        LDRH R0,[R0,R3] // Get instruction BYTE|INST (LE format)
+        ADDS R3,#2
         UXTH R3,R3
-        MOV  R10,R3
-        ADD  R0,R8
-        LDRH R0,[R0,#0] // Get instruction BYTE|INST (LE format)
 
 startX: REV16 R6,R0    // R6=INST|BYTE
         LSRS R2,R6,#5  // Get opcode
@@ -1260,6 +1166,7 @@ sdecode2d: // calculate S & SRCE
         LSRS R2,R0,#10
         MOVS R4,#0x0C
         ANDS R2,R4 // Got TS * 4
+        ANDS R0,R4 // Got TD * 4
         ADR  R4,COM_S2d
         LDR  R4,[R4,R2]
         MOV  PC,R4
@@ -1267,55 +1174,44 @@ sdecode2d: // calculate S & SRCE
 COM_S2d: .WORD COM_S2d_R, COM_S2d_I, COM_S2d_L, COM_S2d_II
 COM_S2d_R:
         ADD  R5,R11 // SRCE = WP + S;
-        UXTH R5,R5
         B    COM_S2d_F2
 COM_S2d_L:
-        ADDS R2,R3,#2
-        UXTH R2,R2
-        MOV  R10,R2
-        ADD  R3,R8
-        LDRH R3,[R3,#0] // SRCE = (memory [PC + 0] << 8) | memory [PC + 1];
-        REV16 R3,R3
+        MOV  R2,R8
+        LDRH R2,[R2,R3] // SRCE = (memory [PC + 0] << 8) | memory [PC + 1];
+        ADDS R3,#2
+        UXTH R3,R3
+        REV16 R2,R2
         CMP  R5,#0  // if (S) // Not R0?
         BEQ  COM_S2d_F
         ADD  R5,R11
-        UXTH R5,R5
-        ADD  R5,R8
-        LDRH R2,[R5,#0] // SRCE += (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R2,R2
-        ADD  R3,R2
-        UXTH R3,R3
+        LDRH R4,[R5,#0] // SRCE += (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
+        REV16 R4,R4
+        ADD  R2,R4
+        UXTH R2,R2
         B    COM_S2d_F
 COM_S2d_II:
         ADD  R5,R11
-        UXTH R5,R5
-        ADD  R5,R8
-        LDRH R3,[R5,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R3,R3
-        ADDS R2,R3,#2
+        LDRH R2,[R5,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
         REV16 R2,R2
-        STRH R2,[R5,#0]
+        ADDS R4,R2,#2
+        REV16 R4,R4
+        STRH R4,[R5,#0]
         B    COM_S2d_F
 COM_S2d_I:
         ADD  R5,R11
-        UXTH R5,R5
-        ADD  R5,R8
-        LDRH R3,[R5,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R3,R3
+        LDRH R2,[R5,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
+        REV16 R2,R2
 COM_S2d_F:
-        LSRS R5,R3,#1
+        LSRS R5,R2,#1
         LSLS R5,#1 // SRCE &= 0xFFFE
-COM_S2d_F2:
         ADD  R5,R8
+COM_S2d_F2:
 // *********************************************************************************************
-        LDRH R5,[R5,#0] // R5=SRCE
-        REV16 R5,R5
+        LDRH R5,[R5,#0] // R5=SRCE - but note this is reversed byte order - instructions to fix.
 // *********************************************************************************************
         LSLS R6,#22
         LSRS R6,#28
         LSLS R6,#1 // Got D << 1
-        MOVS R4,#0x0C
-        ANDS R0,R4 // Got TD * 4
         ADR  R4,COM_D2
         LDR  R4,[R4,R0]
         MOV  PC,R4
@@ -1323,48 +1219,38 @@ COM_S2d_F2:
 COM_D2: .WORD COM_D2_R, COM_D2_I, COM_D2_L, COM_D2_II
 COM_D2_R:
         ADD  R6,R11 // DEST = WP + D;
-        UXTH R6,R6
-        ADD  R6,R8
         MOV  PC,R7
 COM_D2_L:
-        MOV  R3,R10 // R3 has lost its PC+2 value by now
-        ADDS R2,R3,#2
-        UXTH R2,R2
-        MOV  R10,R2
-        ADD  R3,R8
-        LDRH R3,[R3,#0] // DEST = (memory [PC + 0] << 8) | memory [PC + 1];
-        REV16 R3,R3
+        MOV  R2,R8
+        LDRH R2,[R2,R3] // DEST = (memory [PC + 0] << 8) | memory [PC + 1];
+        ADDS R3,#2
+        UXTH R3,R3
+        REV16 R2,R2
         CMP  R6,#0  // if (D) // Not R0?
         BEQ  COM_D2_F
         ADD  R6,R11
-        UXTH R6,R6
-        ADD  R6,R8
-        LDRH R2,[R6,#0] // DEST += (memory [WP + 0 + D] << 8) | memory [WP + 1 + D];
-        REV16 R2,R2
-        ADD  R3,R2
-        UXTH R3,R3
+        LDRH R4,[R6,#0] // DEST += (memory [WP + 0 + D] << 8) | memory [WP + 1 + D];
+        REV16 R4,R4
+        ADD  R2,R4
+        UXTH R2,R2
 COM_D2_F:
-        LSRS R6,R3,#1
+        LSRS R6,R2,#1
         LSLS R6,#1 // DEST &= 0xFFFE
         ADD  R6,R8
         MOV  PC,R7
 COM_D2_II:
         ADD  R6,R11
-        UXTH R6,R6
-        ADD  R6,R8
-        LDRH R3,[R6,#0] // DEST = (memory [WP + 0 + D] << 8) | memory [WP + 1 + D];
-        REV16 R3,R3
-        ADDS R2,R3,#2
+        LDRH R2,[R6,#0] // DEST = (memory [WP + 0 + D] << 8) | memory [WP + 1 + D];
         REV16 R2,R2
-        STRH R2,[R6,#0]
-        LSRS R6,R3,#1
+        ADDS R4,R2,#2
+        REV16 R4,R4
+        STRH R4,[R6,#0]
+        LSRS R6,R2,#1
         LSLS R6,#1 // DEST &= 0xFFFE
         ADD  R6,R8
         MOV  PC,R7
 COM_D2_I:
         ADD  R6,R11
-        UXTH R6,R6
-        ADD  R6,R8
         LDRH R6,[R6,#0] // DEST = (memory [WP + 0 + D] << 8) | memory [WP + 1 + D];
         REV16 R6,R6
         LSRS R6,#1
@@ -1386,6 +1272,7 @@ sdecode1d: // calculate S & SRCE
         LSRS R2,R0,#10
         MOVS R4,#0x0C
         ANDS R2,R4 // Got TS * 4
+        ANDS R0,R4 // Got TD * 4
         ADR  R4,COM_S1
         LDR  R4,[R4,R2]
         MOV  PC,R4
@@ -1393,51 +1280,43 @@ sdecode1d: // calculate S & SRCE
 COM_S1: .WORD COM_S1_R, COM_S1_I, COM_S1_L, COM_S1_II
 COM_S1_R:
         ADD  R5,R11 // SRCE = WP + S;
-        UXTH R3,R5
-        B    COM_S1_F
+        LDRB R5,[R5,#0] // R5=SRCE
+        B    COM_S1_F2
 COM_S1_L:
-        ADDS R2,R3,#2
-        UXTH R2,R2
-        MOV  R10,R2
-        ADD  R3,R8
-        LDRH R3,[R3,#0] // SRCE = (memory [PC + 0] << 8) | memory [PC + 1];
-        rev16 R3,R3
+        MOV  R2,R8
+        LDRH R2,[R2,R3] // SRCE = (memory [PC + 0] << 8) | memory [PC + 1];
+        ADDS R3,#2
+        UXTH R3,R3
+        REV16 R2,R2
         CMP  R5,#0  // if (S) // Not R0?
         BEQ  COM_S1_F
         ADD  R5,R11
-        UXTH R5,R5
-        ADD  R5,R8
-        LDRH R2,[R5,#0] // SRCE += (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R2,R2
-        ADD  R3,R2
-        UXTH R3,R3
+        LDRH R4,[R5,#0] // SRCE += (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
+        REV16 R4,R4
+        ADD  R2,R4
+        UXTH R2,R2
         B    COM_S1_F
 COM_S1_II:
         ADD  R5,R11
-        UXTH R5,R5
-        ADD  R5,R8
-        LDRH R3,[R5,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R3,R3
-        ADDS R2,R3,#1
+        LDRH R2,[R5,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
         REV16 R2,R2
-        STRH R2,[R5,#0]
+        ADDS R4,R2,#1
+        REV16 R4,R4
+        STRH R4,[R5,#0]
         B    COM_S1_F
 COM_S1_I:
         ADD  R5,R11
-        UXTH R5,R5
-        ADD  R5,R8
-        LDRH R3,[R5,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
-        REV16 R3,R3
+        LDRH R2,[R5,#0] // SRCE = (memory [WP + 0 + S] << 8) | memory [WP + 1 + S];
+        REV16 R2,R2
 COM_S1_F:
-        ADD  R3,R8
+        ADD  R2,R8
 // *********************************************************************************************
-        LDRB R5,[R3,#0] // R5=SRCE
+        LDRB R5,[R2,#0] // R5=SRCE
 // *********************************************************************************************
+COM_S1_F2:
         LSLS R6,#22
         LSRS R6,#28
         LSLS R6,#1 // Got D << 1
-        MOVS R4,#0x0C
-        ANDS R0,R4 // Got TD * 4
         ADR  R4,COM_D1
         LDR  R4,[R4,R0]
         MOV  PC,R4
@@ -1445,48 +1324,38 @@ COM_S1_F:
 COM_D1: .WORD COM_D1_R, COM_D1_I, COM_D1_L, COM_D1_II
 COM_D1_R:
         ADD  R6,R11 // DEST = WP + D;
-        UXTH R6,R6
-        ADD  R6,R8
         MOV  PC,R7
 COM_D1_L:
-        MOV  R3,R10 // R3 has lost its PC+2 value by now
-        ADDS R2,R3,#2
-        UXTH R2,R2
-        MOV  R10,R2
-        ADD  R3,R8
-        LDRH R3,[R3,#0] // DEST = (memory [PC + 0] << 8) | memory [PC + 1];
-        REV16 R3,R3
+        MOV  R2,R8
+        LDRH R2,[R2,R3] // DEST = (memory [PC + 0] << 8) | memory [PC + 1];
+        ADDS R3,#2
+        UXTH R3,R3
+        REV16 R2,R2
         CMP  R6,#0  // if (D) // Not R0?
         BEQ  COM_D1_F
         ADD  R6,R11
-        UXTH R6,R6
-        ADD  R6,R8
-        LDRH R2,[R6,#0] // DEST += (memory [WP + 0 + D] << 8) | memory [WP + 1 + D];
-        REV16 R2,R2
-        ADD  R3,R2
-        UXTH R6,R3
+        LDRH R4,[R6,#0] // DEST += (memory [WP + 0 + D] << 8) | memory [WP + 1 + D];
+        REV16 R4,R4
+        ADD  R2,R4
+        UXTH R6,R2
         ADD  R6,R8
         MOV  PC,R7
 COM_D1_F:
-        MOVS R6,R3
+        MOVS R6,R2
         ADD  R6,R8
         MOV  PC,R7
 COM_D1_II:
         ADD  R6,R11
-        UXTH R6,R6
-        ADD  R6,R8
-        LDRH R3,[R6,#0] // DEST = (memory [WP + 0 + D] << 8) | memory [WP + 1 + D];
-        REV16 R3,R3
-        ADDS R2,R3,#1
+        LDRH R2,[R6,#0] // DEST = (memory [WP + 0 + D] << 8) | memory [WP + 1 + D];
         REV16 R2,R2
-        STRH R2,[R6,#0]
-        MOVS R6,R3
+        ADDS R4,R2,#1
+        REV16 R4,R4
+        STRH R4,[R6,#0]
+        MOVS R6,R2
         ADD  R6,R8
         MOV  PC,R7
 COM_D1_I:
         ADD  R6,R11
-        UXTH R6,R6
-        ADD  R6,R8
         LDRH R6,[R6,#0] // DEST = (memory [WP + 0 + D] << 8) | memory [WP + 1 + D];
         REV16 R6,R6
         ADD  R6,R8
@@ -1498,27 +1367,27 @@ COM_D1_I:
 
 // *********************************************************************************************
 I_XOP: // F18A PIX instruction
-        LSLS R3,R4,#17  // Move leftmost bit (M) into the Carry flag
+        LSLS R7,R4,#17  // Move leftmost bit (M) into the Carry flag
         BCC  I_XOP_BL   // Not a BM calculation, goto BL code instead
 
         UXTB R4,R5      // R4=00000000 yyyyyyyy (E/A 336)
         LSLS R2,R4,#5   // R2=000yyyyy yyy00000
         ORRS R2,R4      // R2=000yyyyy zzzyyyyy
-        MOVS R3,#0xF8
-        BICS R2,R3      // R2=000yyyyy 00000yyy
+        MOVS R7,#0xF8
+        BICS R2,R7      // R2=000yyyyy 00000yyy
 
         LSRS R4,R5,#8   // R4=00000000 xxxxxxxx
         ADDS R2,R4      // R2=000yyyyy xxxxxzzz
-        MOVS R3,#7
-        ANDS R4,R3      // R4=00000000 00000xxx (bit offset)
+        MOVS R7,#7
+        ANDS R4,R7      // R4=00000000 00000xxx (bit offset)
         SUBS R2,R4      // R2=000yyyyy xxxxxyyy (byte offset)
 
-        ADR  R3,VREGS
-        LDR  R3,[R3,#0] // Get offset
-        ADD  R3,R8      // Within the 64KB memory area
-        LDRB R4,[R3,#4] // Get VR04
-        MOVS R3,#0x04   // BM Pattern Table Location
-        ANDS R4,R3      // Can only be >0000 or >2000 (E/A 335)
+        ADR  R7,VREGSL
+        LDR  R7,[R7,#0] // Get offset
+        ADD  R7,R8      // Within the 64KB memory area
+        LDRB R4,[R7,#4] // Get VR04
+        MOVS R7,#0x04   // BM Pattern Table Location
+        ANDS R4,R7      // Can only be >0000 or >2000 (E/A 335)
         LSLS R4,#11     // Move bit into position
         ORRS R2,R4
 
@@ -1528,15 +1397,18 @@ I_XOP: // F18A PIX instruction
 /*
 I_XOP_BL: // Return to C code function: F18A_PIX for BL mode
         MOVS R7,R1    // Save ST
+        MOV  R10,R3   // Save current PC
         MOVS R1,R5    // R1=SRCE (X|Y)
         MOV  R2,R4    // R2=TEMP (*DEST) Flags and Bits
         MOV  R3,R6    // R3=DEST (pointer into memory [])
         BLX  F18A_PIX // R0 has the reversed opcode: BYTE|INST
+        MOV  R3,R10   // Restore current PC
         MOVS R1,R7    // Restore ST
         B    start
 */
 I_XOP_BL:
-        ADR  R3,VREGS
+        MOV  R10,R3      // Save current PC
+        ADR  R3,VREGSH
         LDR  R3,[R3,#0]  // Get offset
         ADD  R3,R8       // Within the 64KB memory area
         LDRB R0,[R3,#3]  // Get VR35
@@ -1562,6 +1434,7 @@ I_XOP_BL_M:
 
         REV16 R2,R2
         STRH R2,[R6,#0]
+        MOV  R3,R10      // Restore current PC
         B    start
 
 I_XOP_BL_P:
@@ -1624,10 +1497,12 @@ I_XOP_BL_NW:
         REV16 R4,R4
         STRH R4,[R6,#0]
 I_XOP_BL_F:
+        MOV  R3,R10      // Restore current PC
         B    start
 
 .align 4
-VREGS:  .WORD 0x6020 // Video Registers map point (VR32)
+VREGSL: .WORD 0x6000 // Video Registers map point (VR0)
+VREGSH: .WORD 0x6020 // Video Registers map point (VR32)
 MSKSH:  .BYTE 0xC0, 0x30, 0x0C, 0x03, 0x06, 0x04, 0x02, 0x00
 // *********************************************************************************************
 I_SLC:
@@ -1637,13 +1512,10 @@ I_SLC:
 I_SLC:  LSLS R5,R0,#20
         LSRS R5,#27 // Get Register x 2
         ADD  R5,R11 // Add WP
-        UXTH R5,R5
-        ADD  R5,R8
 
         LSRS R2,R0,#12 // Get Shift Count
         BNE  I_SLC_nr0 // Result not 0 - got it, else
         MOV  R2,R11
-        ADD  R2,R8
         LDRB R2,[R2,#1] // Get R0 low byte
         MOVS R4,#0x0F  // Mask lower nibble
         ANDS R2,R4
@@ -1658,9 +1530,9 @@ I_SLC_nr0:
         MOVS R4,#0x0E // Get initialised ST
         ANDS R1,R4
 
-        MOVS R3,#16 // Simulate Rotate Left
-        SUBS R3,R2  // R2 = 1..16, R3 -> 15..0
-        RORS R0,R3
+        MOVS R4,#16 // Simulate Rotate Left
+        SUBS R4,R2  // R2 = 1..16, R4 -> 15..0
+        RORS R0,R4
         LSRS R2,R0,#1 // Calculate Carry
         BCC  I_SLC_st // Carry Clear?
         ADDS R1,#0x10 // Carry Bit
@@ -1673,53 +1545,42 @@ I_SLC_st:
 //89ABCDEF01234567 (Format 7)
 //oo00000000001100
 I_RET:  MOV  R0,R11 // WP
-        ADDS R0,#30 // R15
-        UXTH R0,R0
-        ADD  R0,R8
+        LDRH R4,[R0,#30] // R15
+        REV16 R4,R4
+        LSRS R4,#1
+        LSLS R4,#1 // R4 &= 0xFFFE
 
-        LDRH R3,[R0,#0] // R15
+        ADDS R4,#2
+        UXTH R4,R4
+        REV16 R2,R4
+        STRH R2,[R0,#30] // R15
+        ADD  R4,R8
+
+        LDRH R3,[R4,#0] // Get the value off the stack
         REV16 R3,R3
         LSRS R3,#1
         LSLS R3,#1 // R3 &= 0xFFFE
-
-        ADDS R3,#2
-        UXTH R3,R3
-        REV16 R2,R3
-        STRH R2,[R0,#0] // R15
-        ADD  R3,R8
-
-        LDRH R3,[R3,#0] // Get the value off the stack
-        REV16 R3,R3
-        LSRS R3,#1
-        LSLS R3,#1 // R3 &= 0xFFFE
-        MOV  R10,R3 // PC
         B    start
 // *********************************************************************************************
 //R0 (LE)
 //89ABCDEF01234567 (Format 6)
 //10TsSSSS00001100
 I_CALL: MOV  R0,R11 // WP
-        ADDS R0,#30 // R15
-        UXTH R0,R0
-        ADD  R0,R8
+        LDRH R4,[R0,#30] // Get R15
+        REV16 R4,R4
+        LSRS R4,#1
+        LSLS R4,#1 // R4 &= 0xFFFE
 
-        LDRH R3,[R0,#0] // Get R15
+        SUBS R2,R4,#2 // Stack word has been consumed
+        REV16 R2,R2
+        STRH R2,[R0,#30] // Store new R15
+        ADD  R4,R8
+
         REV16 R3,R3
-        LSRS R3,#1
-        LSLS R3,#1 // R3 &= 0xFFFE
-
-        SUBS R2,R3,#2 // Stack word has been consumed
-        REV16 R2,R2
-        STRH R2,[R0,#0] // Store new R15
-        ADD  R3,R8
-
-        MOV  R2,R10 // PC
-        REV16 R2,R2
-        STRH R2,[R3,#0] // Old *R15
+        STRH R3,[R4,#0] // Old *R15
 
         MOV  R0,R8
-        SUBS R5,R0 // Normalise
-        MOV  R10,R5 // PC
+        SUBS R3,R5,R0 // Normalise
         B    start
 // *********************************************************************************************
 //R0 (LE)
@@ -1728,43 +1589,35 @@ I_CALL: MOV  R0,R11 // WP
 I_PUSH: LDRH R5,[R5,#0] // R5=SRCE
 
         MOV  R0,R11 // WP
-        ADDS R0,#30 // R15
-        UXTH R0,R0
-        ADD  R0,R8
+        LDRH R4,[R0,#30] // Get R15
+        REV16 R4,R4
+        LSRS R4,#1
+        LSLS R4,#1 // R4 &= 0xFFFE
 
-        LDRH R3,[R0,#0] // Get R15
-        REV16 R3,R3
-        LSRS R3,#1
-        LSLS R3,#1 // R3 &= 0xFFFE
-
-        SUBS R2,R3,#2 // Stack word has been consumed
+        SUBS R2,R4,#2 // Stack word has been consumed
         REV16 R2,R2
-        STRH R2,[R0,#0] // Store new R15
-        ADD  R3,R8
+        STRH R2,[R0,#30] // Store new R15
+        ADD  R4,R8
 
-        STRH R5,[R3,#0] // Old *R15
+        STRH R5,[R4,#0] // Old *R15
         B    start
 // *********************************************************************************************
 //R0 (LE)
 //89ABCDEF01234567 (Format 6)
 //00TsSSSS00001111
 I_POP:  MOV  R0,R11 // WP
-        ADDS R0,#30 // R15
-        UXTH R0,R0
-        ADD  R0,R8
+        LDRH R4,[R0,#30] // Get R15
+        REV16 R4,R4
+        LSRS R4,#1
+        LSLS R4,#1 // R4 &= 0xFFFE
 
-        LDRH R3,[R0,#0] // Get R15
-        REV16 R3,R3
-        LSRS R3,#1
-        LSLS R3,#1 // R3 &= 0xFFFE
+        ADDS R4,#2 // Stack word has been consumed
+        UXTH R4,R4
+        REV16 R2,R4
+        STRH R2,[R0,#30] // Store new R15
+        ADD  R4,R8
 
-        ADDS R3,R3,#2 // Stack word has been consumed
-        UXTH R3,R3
-        REV16 R2,R3
-        STRH R2,[R0,#0] // Store new R15
-        ADD  R3,R8
-
-        LDRH R0,[R3,#0] // *R15
+        LDRH R0,[R4,#0] // *R15
         STRH R0,[R5,#0] // R5=DEST
         B    start
 // *********************************************************************************************
