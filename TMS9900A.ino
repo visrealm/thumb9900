@@ -1,3 +1,5 @@
+#include "pico/stdlib.h"
+
 #define IN_RAM(f) __not_in_flash("f") f
 
 #define DEBUGOUT 2
@@ -12,7 +14,7 @@ extern "C" int instscnt;
 
 extern "C" int run9900 (unsigned char * memory, unsigned short pc, unsigned short wp, unsigned char * buf);
 
-static unsigned char mem [64 * 1024 + 2]; // TODO: fix +2 issues in ASM
+static unsigned char mem [64 * 1024 + 2]; // TODO: fix +2 issues in ASM (BLWP, MUL & DIV)
 static unsigned char buf [16 * 1024];
 
 static const unsigned char cputest [] = { // Org = 0x6000, Start = 0x6026
@@ -236,6 +238,10 @@ static const unsigned char cputest [] = { // Org = 0x6000, Start = 0x6026
 };
 
 void setup () {
+    int i = 252;
+    set_sys_clock_khz (i * 1000, true);
+    clock_configure (clk_peri, 0, CLOCKS_CLK_PERI_CTRL_AUXSRC_VALUE_CLK_SYS, i * MHZ, i * MHZ);
+
     SERIALOUT.setRX(S_RX);
     SERIALOUT.setTX(S_TX);
     SERIALOUT.begin (115200);
